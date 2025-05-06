@@ -9,3 +9,5 @@ langchain-google-genai>=2.0.10
 requests>=2.32.3
 fastapi>=0.115.9
 uvicorn>=0.34.2
+pypdf
+dotenv
