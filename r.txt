@@ -1,0 +1,37 @@
+python-dotenv
+langchain-core
+langchain-community  # For document loaders
+langchain-text-splitters # For RecursiveCharacterTextSplitter
+langchain-google-genai
+langchain-chroma
+# Other dependencies like 'google-generativeai', 'chromadb', 'pypdf', 'docx2txt'
+# will be pulled in by the packages above.
+
+google-generativeai>=0.8.5
+
+google-adk>=0.3.0
+
+
+requests>=2.32.3
+fastapi>=0.115.9
+uvicorn>=0.34.2
+
+# Document parsing libraries required by langchain-community loaders
+pypdf
+docx2txt
+
+
+# dependencies = [
+#     "fastapi>=0.115.9",
+#     "google-adk>=0.3.0",
+#     "google-generativeai>=0.8.5",
+#     "langchain-chroma>=0.2.3",
+#     "langchain-community>=0.3.23",
+#     "langchain-core>=0.3.59",
+#     "langchain-google-genai>=2.0.10",
+#     "langchain-text-splitters>=0.3.8",
+#     "pysqlite3-binary>=0.5.4",
+#     "python-dotenv>=1.1.0",
+#     "requests>=2.32.3",
+#     "uvicorn>=0.34.2",
+# ]
