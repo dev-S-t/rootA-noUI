@@ -131,7 +131,7 @@ def split_documents_into_chunks(
 # --- Main Application Logic ---
 def process_documents_and_build_db(
     docs_folder: str,
-    db_path: str,
+    db_path: str, # This will now be custom_rag/db_name
     collection_name: str,
     embedding_model_name: str,
     chunk_size: int,
@@ -199,10 +199,10 @@ def main():
         help="Path to the folder containing PDF and DOCX documents to process.",
     )
     parser.add_argument(
-        "--db_path",
+        "--db_name",
         type=str,
-        default="./chroma_rag_db",
-        help="Path to the directory where ChromaDB should be persisted.",
+        default="default_rag",
+        help="Name of the database. This will be created as a subfolder within 'custom_rag'.",
     )
     parser.add_argument(
         "--collection_name",
@@ -244,9 +244,24 @@ def main():
         logger.info(f"Please add your PDF and DOCX files to '{args.docs_folder}' and re-run.")
         return # Exit if folder was just created, as it will be empty
 
+    # Construct the actual database path inside custom_rag folder
+    base_db_dir = "custom_rag"
+    actual_db_path = os.path.join(base_db_dir, args.db_name)
+
+    # Create custom_rag and custom_rag/db_name directories if they don't exist
+    if not os.path.exists(base_db_dir):
+        logger.info(f"Base database directory '{base_db_dir}' not found. Creating it.")
+        os.makedirs(base_db_dir)
+    
+    if not os.path.exists(actual_db_path):
+        logger.info(f"Database directory '{actual_db_path}' not found. Creating it.")
+        os.makedirs(actual_db_path)
+    
+    logger.info(f"Using database at path: {actual_db_path}")
+
     process_documents_and_build_db(
         docs_folder=args.docs_folder,
-        db_path=args.db_path,
+        db_path=actual_db_path, # Use the constructed path
         collection_name=args.collection_name,
         embedding_model_name=args.embedding_model,
         chunk_size=args.chunk_size,

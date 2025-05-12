@@ -26,10 +26,17 @@ dotenv.load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 api_key = os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=api_key)
 
-# Vector DB path
-VECTOR_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "vector_db")
+# Vector DB path (base directory)
+CUSTOM_RAG_BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "custom_rag")
+ACTIVE_RAG_NAME = "default_rag"  # Module-level variable, to be set by main.py
 
 APP_NAME = "multi_tool_agent_app"
+
+def get_vector_db_path(rag_name: str) -> str:
+    """Constructs the absolute path to a specific RAG database within the custom_rag folder."""
+    if not rag_name:  # Fallback to default if empty or None
+        rag_name = "default_rag"
+    return os.path.join(CUSTOM_RAG_BASE_DIR, rag_name)
 
 # Utility to get a runner for a user/session (can be used in async orchestration)
 def get_agent_runner(user_id: str, session_id: str):
@@ -47,6 +54,7 @@ def ensure_session(user_id: str, session_id: str):
         user_id=user_id,
         session_id=session_id
     )
+
 def get_weather(city: str) -> dict:
     """Retrieves the current weather report for a specified city.
 
@@ -100,7 +108,10 @@ def get_current_time(city: str) -> dict:
 
 
 def get_vector_db() -> Optional[Chroma]:
-    """Initialize and return the vector database client"""
+    """Initialize and return the vector database client based on ACTIVE_RAG_NAME."""
+    
+    actual_db_path = get_vector_db_path(ACTIVE_RAG_NAME)  # Uses module-level ACTIVE_RAG_NAME
+
     try:
         # Initialize the embedding model
         embedding_function = GoogleGenerativeAIEmbeddings(
@@ -109,22 +120,22 @@ def get_vector_db() -> Optional[Chroma]:
         )
         
         # Check if vector database exists
-        if os.path.exists(VECTOR_DB_PATH):
-            logger.info(f"Loading vector database from {VECTOR_DB_PATH}")
-            return Chroma(persist_directory=VECTOR_DB_PATH, embedding_function=embedding_function)
+        if os.path.exists(actual_db_path) and os.path.isdir(actual_db_path):  # Check if it's a directory
+            logger.info(f"Loading vector database from {actual_db_path} (active RAG: {ACTIVE_RAG_NAME})")
+            return Chroma(persist_directory=actual_db_path, embedding_function=embedding_function)
         else:
-            logger.warning(f"Vector database not found at {VECTOR_DB_PATH}")
+            logger.warning(f"Vector database not found at {actual_db_path} for active RAG: {ACTIVE_RAG_NAME}")
             return None
     except Exception as e:
-        logger.error(f"Error initializing vector database: {e}")
+        logger.error(f"Error initializing vector database for RAG {ACTIVE_RAG_NAME}: {e}")
         return None
 
 
 def rag_answer(question: str) -> dict:
     """Answers questions using Retrieval-Augmented Generation (RAG).
     
-    This tool retrieves relevant information from a vector database and uses it
-    to generate a more informed answer to user questions.
+    This tool retrieves relevant information from the active vector database 
+    (determined by ACTIVE_RAG_NAME) and uses it to generate a more informed answer.
 
     Args:
         question (str): The user's question.
@@ -133,11 +144,11 @@ def rag_answer(question: str) -> dict:
         dict: status and the answer or error message.
     """
     # Initialize vector database
-    vector_db = get_vector_db()
+    vector_db = get_vector_db()  # Calls updated get_vector_db
     
     if not vector_db:
         # Fall back to mock knowledge base if vector DB is not available
-        logger.warning("Vector database not available, using fallback knowledge base")
+        logger.warning(f"Vector database for '{ACTIVE_RAG_NAME}' not available, using fallback knowledge base")
         knowledge_base = {
             "google adk": "Google Agent Development Kit (ADK) is a framework for building AI agents. It supports tools, state management, and sequential agents.",
             "rag": "Retrieval-Augmented Generation (RAG) is a technique that enhances LLM outputs by retrieving relevant information from external sources before generating responses.",
@@ -258,11 +269,6 @@ def summarizer(query: str, content: str) -> dict:
         logger.error(f"Summarizer error: {e}")
         return {"status": "error", "error_message": str(e)}
 
-
-
-
-
-
 # --- Search Bot Agent ---
 search_bot = Agent(
     name="search_bot",
@@ -315,4 +321,7 @@ AGENT = root_agent
 SESSION_SERVICE = session_service
 MEMORY_SERVICE = memory_service
 APP_NAME = APP_NAME
+
+# Export the new path function if main.py needs it (it does)
+__all__ = ['AGENT', 'SESSION_SERVICE', 'MEMORY_SERVICE', 'APP_NAME', 'get_vector_db_path', 'ACTIVE_RAG_NAME']
 
