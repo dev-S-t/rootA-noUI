@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const loginSection = document.getElementById('login-section');
     const uploadSection = document.getElementById('upload-section');
     const chatSection = document.getElementById('chat-section');
+    const signupSection = document.getElementById('signup-section'); // Added
 
     const userInfo = document.getElementById('user-info');
     const usernameDisplay = document.getElementById('username-display');
@@ -13,17 +14,28 @@ document.addEventListener('DOMContentLoaded', () => {
     const passwordInput = document.getElementById('password');
     const loginError = document.getElementById('login-error');
 
+    // Signup form elements
+    const signupForm = document.getElementById('signup-form');
+    const signupUsernameInput = document.getElementById('signup-username');
+    const signupPasswordInput = document.getElementById('signup-password');
+    const accessCodeInput = document.getElementById('access-code');
+    const signupMessage = document.getElementById('signup-message');
+    const showSignupLink = document.getElementById('show-signup-link');
+    const showLoginLink = document.getElementById('show-login-link');
+
     const dbStatusMessage = document.getElementById('db-status-message');
     const uploadForm = document.getElementById('upload-form');
     const filesInput = document.getElementById('files');
     const selectedFilesPreview = document.getElementById('selected-files-preview');
+    const customInstructionsInput = document.getElementById('custom-instructions'); // Added for custom instructions
     const uploadButton = uploadForm.querySelector('button[type="submit"]');
     const uploadStatus = document.getElementById('upload-status');
     const processFilesButton = document.getElementById('process-files-button');
     const processStatus = document.getElementById('process-status');
 
-    const toggleChatButton = document.getElementById('toggle-chat-button'); // This will be for Default RAG
-    const chatCustomRagButton = document.getElementById('chat-custom-rag-button'); // New button for Custom RAG
+    const chatDefaultRagButton = document.getElementById('chat-default-rag-button');
+    const chatDefaultRagSseButton = document.getElementById('chat-default-rag-sse-button'); // New button
+    const chatCustomRagButton = document.getElementById('chat-custom-rag-button');
     const backToUploadButton = document.getElementById('back-to-upload-button');
 
     const chatMessages = document.getElementById('chat-messages');
@@ -40,6 +52,126 @@ document.addEventListener('DOMContentLoaded', () => {
     let userHasCustomRag = false;
     let chatTargetIsCustom = false; // To track which RAG the chat is targeting
     let currentSessionId = null; // Added for stable session ID
+    let streamWithSteps = false; // New flag for SSE streaming with steps
+
+    // --- Helper Functions for Markdown Rendering ---
+    function decodeHtmlEntities(text) {
+        const textarea = document.createElement('textarea');
+        textarea.innerHTML = text;
+        return textarea.value;
+    }
+
+    function markdownToHtml(markdown) {
+        let html = decodeHtmlEntities(markdown);
+
+        // Normalize line endings
+        html = html.replace(/\r\n?/g, '\n');
+
+        // Placeholders for content that should not be processed further by markdown rules
+        const placeholders = [];
+        let placeholderId = 0;
+        const addPlaceholder = (content) => {
+            placeholders[placeholderId] = content;
+            return `%%PLACEHOLDER_${placeholderId++}%%`;
+        };
+
+        // Code blocks (```lang\ncode\n``` or ```\ncode\n```)
+        html = html.replace(/^```(\w*)\n([\s\S]*?)\n```$/gm, (match, lang, code) => {
+            const languageClass = lang ? `language-${lang}` : '';
+            const escapedCode = code.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return addPlaceholder(`\n<pre><code class="${languageClass}">${escapedCode.trim()}\n</code></pre>\n`);
+        });
+        
+        // Inline code (`code`)
+        html = html.replace(/`([^`]+?)`/g, (match, code) => {
+            return addPlaceholder(`<code>${code.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code>`);
+        });
+
+        // Headings (###### H6 through # H1)
+        html = html.replace(/^###### (.*$)/gim, '<h6>$1</h6>');
+        html = html.replace(/^##### (.*$)/gim, '<h5>$1</h5>');
+        html = html.replace(/^#### (.*$)/gim, '<h4>$1</h4>');
+        html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+        html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+        html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+
+        // Horizontal Rules (---, ***, ___)
+        html = html.replace(/^(?:---|___|\*\*\*)\s*$/gm, '<hr>');
+
+        // Blockquotes (> text)
+        // Process line by line for blockquotes to handle multi-line quotes correctly
+        html = html.split('\n').map(line => {
+            if (line.match(/^> /)) {
+                return line.replace(/^> (.*)/, '<blockquote>$1</blockquote>');
+            }
+            return line;
+        }).join('\n');
+        html = html.replace(/<\/blockquote>\n?<blockquote>/g, '\n'); // Merge adjacent
+
+        // Lists (Unordered: *, -, +; Ordered: 1.)
+        // This is a simplified list handling. Does not handle deep nesting well.
+        // Unordered lists
+        html = html.replace(/^\s*([*+-]) +(.*)/gm, '<li>$2</li>');
+        // Ordered lists
+        html = html.replace(/^\s*(\d+)\. +(.*)/gm, '<li>$2</li>'); // Simplified to <li>, <ol> can add start later if needed
+
+        // Wrap consecutive <li> elements in <ul> or <ol>
+        // This regex is basic and assumes all lists are <ul> for simplicity here.
+        // A more robust solution would differentiate based on original markers.
+        html = html.replace(/((?:<li>.*?<\/li>\n?)+)/g, (match) => {
+            return `<ul>\n${match.trim()}\n</ul>\n`;
+        });
+        html = html.replace(/<\/ul>\s*<ul>/g, ''); // Clean up adjacent <ul> tags
+
+        // Links: [text](url "title") or [text](url)
+        html = html.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)/g, (match, text, url, title) => {
+            const titleAttr = title ? ` title="${title}"` : '';
+            // Ensure URL is not a placeholder before making it a link
+            if (url.startsWith('%%PLACEHOLDER_')) return match; // Don't link placeholders
+            return `<a href="${url}"${titleAttr} target="_blank">${text}</a>`;
+        });
+        
+        // Emphasis (Order matters: process stronger/longer patterns first)
+        // Bold and Italic combined (***text*** or ___text___)
+        html = html.replace(/(?:\*\*\*|___)([^\*\n_]+?)(?:\*\*\*|___)/g, '<strong><em>$1</em></strong>');
+        // Bold (**text** or __text__)
+        html = html.replace(/(?:\*\*|__)([^\*\n_]+?)(?:\*\*|__)/g, '<strong>$1</strong>');
+        // Italic (*text* or _text_)
+        html = html.replace(/(?:\*|_)([^\*\n_]+?)(?:\*|_)/g, '<em>$1</em>');
+        // Strikethrough (~~text~~)
+        html = html.replace(/~~([^~]+?)~~/g, '<del>$1</del>');
+
+        // Paragraphs: Wrap lines that are not part of other block elements
+        html = html.split('\n').map(line => {
+            const trimmedLine = line.trim();
+            if (trimmedLine === '') return '';
+            // Check if the line is already a block element or a placeholder
+            if (/^<(ul|ol|li|h[1-6]|blockquote|hr|pre|p|div)/i.test(trimmedLine) || 
+                /%%PLACEHOLDER_\d+%%/.test(trimmedLine) ||
+                /^<\/(ul|ol|h[1-6]|blockquote|pre|p|div)>/.test(trimmedLine)) {
+                return line;
+            }
+            return `<p>${line}</p>`;
+        }).join('\n');
+        
+        html = html.replace(/<p>\s*<\/p>/g, ''); // Remove empty paragraphs
+        html = html.replace(/\n/g, '<br>'); // Convert remaining newlines to <br>
+
+        // Restore placeholders
+        for (let i = 0; i < placeholderId; i++) {
+            // Ensure regex is safe for replacement string
+            const placeholderRegex = new RegExp(`%%PLACEHOLDER_${i}%%`, 'g');
+            html = html.replace(placeholderRegex, placeholders[i]);
+        }
+        
+        // Final cleanup of <br> tags that might be redundant
+        html = html.replace(/<br\s*\/?>\s*(<(ul|ol|li|h[1-6]|blockquote|hr|p|div|pre))/gi, '$1');
+        html = html.replace(/(<\/(ul|ol|li|h[1-6]|blockquote|hr|p|div|pre)>)\s*<br\s*\/?>/gi, '$1');
+        html = html.replace(/(<br\s*\/?>\s*){2,}/gi, '<br>');
+        html = html.replace(/^<br\s*\/?>|<br\s*\/?>$/g, ''); // Remove leading/trailing <br>
+
+        return html.trim();
+    }
 
     // --- UI Update Functions ---
     function updateUIState() {
@@ -48,20 +180,24 @@ document.addEventListener('DOMContentLoaded', () => {
             userInfo.classList.remove('hidden');
             loginSection.classList.remove('active-section');
             loginSection.classList.add('hidden');
+            signupSection.classList.remove('active-section'); // Hide signup when logged in
+            signupSection.classList.add('hidden');
 
             uploadSection.classList.add('active-section');
             uploadSection.classList.remove('hidden');
             chatSection.classList.remove('active-section');
             chatSection.classList.add('hidden');
 
-            // Make sure file input is visible when switching to upload section
+            // Make sure file input and instructions are visible when switching to upload section
             filesInput.classList.remove('hidden');
+            if (customInstructionsInput) customInstructionsInput.classList.remove('hidden'); // Show instructions input
             uploadButton.classList.remove('hidden');
-            uploadButton.textContent = 'Upload Files';
+            uploadButton.textContent = 'Upload Files & Instructions'; // Updated button text
             uploadButton.disabled = false;
 
-            toggleChatButton.textContent = 'Chat with Default RAG';
-            toggleChatButton.classList.remove('hidden');
+            chatDefaultRagButton.textContent = 'Chat with Default RAG'; // Updated
+            chatDefaultRagButton.classList.remove('hidden');
+            chatDefaultRagSseButton.classList.remove('hidden'); // Show SSE button
 
             const uploadSectionTitle = uploadSection.querySelector('h2');
             if (uploadSectionTitle) uploadSectionTitle.textContent = `Manage RAG for ${currentUser}`;
@@ -70,11 +206,14 @@ document.addEventListener('DOMContentLoaded', () => {
             usernameDisplay.textContent = '';
             loginSection.classList.add('active-section');
             loginSection.classList.remove('hidden');
+            signupSection.classList.remove('active-section'); // Ensure signup is hidden initially if not logged in
+            signupSection.classList.add('hidden');
             uploadSection.classList.remove('active-section');
             uploadSection.classList.add('hidden');
             chatSection.classList.remove('active-section');
             chatSection.classList.add('hidden');
-            toggleChatButton.classList.add('hidden');
+            chatDefaultRagButton.classList.add('hidden'); // Updated
+            chatDefaultRagSseButton.classList.add('hidden'); // Hide SSE button
             if (chatCustomRagButton) chatCustomRagButton.classList.add('hidden');
 
             clearUploadInfo();
@@ -95,11 +234,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Show file input and upload button again if they were hidden
         filesInput.classList.remove('hidden');
+        if (customInstructionsInput) customInstructionsInput.classList.remove('hidden'); // Show instructions input
         uploadButton.classList.remove('hidden');
-        uploadButton.textContent = 'Upload Files';
+        uploadButton.textContent = 'Upload Files & Instructions'; // Updated button text
         uploadButton.disabled = false;
 
         filesInput.value = '';
+        if (customInstructionsInput) customInstructionsInput.value = ''; // Clear instructions input
         selectedFilesStore = [];
         renderSelectedFilesPreview();
         const apiInfoBox = document.getElementById('api-info-box');
@@ -155,6 +296,26 @@ document.addEventListener('DOMContentLoaded', () => {
         e.target.value = null;
     });
 
+    showSignupLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        loginSection.classList.remove('active-section');
+        loginSection.classList.add('hidden');
+        signupSection.classList.add('active-section');
+        signupSection.classList.remove('hidden');
+        loginError.textContent = ''; // Clear login errors
+        signupMessage.textContent = ''; // Clear previous signup messages
+    });
+
+    showLoginLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        signupSection.classList.remove('active-section');
+        signupSection.classList.add('hidden');
+        loginSection.classList.add('active-section');
+        loginSection.classList.remove('hidden');
+        signupMessage.textContent = ''; // Clear signup errors
+        loginError.textContent = ''; // Clear previous login messages
+    });
+
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const username = usernameInput.value.trim();
@@ -203,6 +364,59 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error("Login error:", error);
             currentUser = null;
             currentPassword = null;
+        }
+    });
+
+    signupForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = signupUsernameInput.value.trim();
+        const password = signupPasswordInput.value;
+        const accessCode = accessCodeInput.value.trim();
+
+        if (!username || !password || !accessCode) {
+            signupMessage.textContent = 'All fields are required for signup.';
+            signupMessage.style.color = 'red';
+            return;
+        }
+
+        signupMessage.textContent = 'Attempting to sign up...';
+        signupMessage.style.color = 'var(--primary-color, blue)';
+
+        try {
+            const response = await fetch('/signup', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    username: username,
+                    password: password,
+                    access_code: accessCode
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                signupMessage.textContent = data.message + ' Please login.';
+                signupMessage.style.color = 'green';
+                signupForm.reset(); // Clear the form
+                // Optionally, switch to login view automatically
+                setTimeout(() => {
+                    signupSection.classList.remove('active-section');
+                    signupSection.classList.add('hidden');
+                    loginSection.classList.add('active-section');
+                    loginSection.classList.remove('hidden');
+                    loginError.textContent = ''; // Clear previous login messages
+                }, 2000); // Switch after 2 seconds
+            } else {
+                signupMessage.textContent = `Signup failed: ${data.detail || response.statusText}`;
+                signupMessage.style.color = 'red';
+            }
+        } catch (error) {
+            signupMessage.textContent = 'Signup failed: Network error or server down.';
+            signupMessage.style.color = 'red';
+            console.error("Signup error:", error);
         }
     });
 
@@ -269,80 +483,186 @@ document.addEventListener('DOMContentLoaded', () => {
 
     uploadForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        if (!currentUser || selectedFilesStore.length === 0) {
-            uploadStatus.textContent = 'Please select one or more PDF/DOCX files to upload.';
+        const customInstructionsText = customInstructionsInput ? customInstructionsInput.value : ''; // Original value
+
+        if (!currentUser) return;
+
+        if (selectedFilesStore.length === 0 && customInstructionsText.trim() === '') {
+            uploadStatus.textContent = 'Please select files to upload or enter custom agent instructions.';
             uploadStatus.style.color = 'orange';
             return;
         }
 
-        const formData = new FormData();
-        selectedFilesStore.forEach(file => {
-            formData.append('files', file);
-        });
-
-        uploadStatus.textContent = 'Uploading file(s)...';
-        uploadStatus.style.color = 'var(--primary-color, blue)';
         uploadButton.disabled = true;
         uploadButton.textContent = 'Uploading...';
         processFilesButton.classList.add('hidden');
+        uploadStatus.innerHTML = ''; // Clear previous messages
 
-        try {
-            const response = await fetch(`/upload/${currentUser}`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': 'Basic ' + btoa(currentUser + ":" + currentPassword)
-                },
-                body: formData
-            });
-            const data = await response.json();
+        const BATCH_SIZE = 50;
+        let overallSuccess = true;
+        let anyFilesStaged = false;
+        let aggregatedUploadedFiles = [];
+        let aggregatedRejectedFiles = [];
+        let lastInstructionStatus = '';
+        let lastGeneralMessage = '';
 
-            if (response.ok) {
-                uploadStatus.textContent = data.message || 'Files staged on server. Ready to process.';
-                uploadStatus.style.color = 'green';
+        // If there are files, batch them.
+        if (selectedFilesStore.length > 0) {
+            uploadStatus.innerHTML = '<h4>Upload Progress:</h4>';
+            for (let i = 0; i < selectedFilesStore.length; i += BATCH_SIZE) {
+                const batchFiles = selectedFilesStore.slice(i, i + BATCH_SIZE);
+                const batchFormData = new FormData();
+                batchFiles.forEach(file => batchFormData.append('files', file));
+                batchFormData.append('custom_instructions', customInstructionsText); // Send original instructions text
 
-                if (data.uploaded_files && data.uploaded_files.length > 0) {
-                    processFilesButton.textContent = 'Confirm and Process Files'; // Confirm text
-                    processFilesButton.classList.remove('hidden');
-                    processStatus.textContent = 'Please click "Confirm and Process Files" to build/update your RAG.';
-                    processStatus.style.color = 'var(--primary-color, blue)';
+                const batchNumber = (i / BATCH_SIZE) + 1;
+                const totalBatches = Math.ceil(selectedFilesStore.length / BATCH_SIZE);
+                uploadStatus.innerHTML += `<p>Uploading batch ${batchNumber} of ${totalBatches} (${batchFiles.length} files)...</p>`;
 
-                    // Hide file input and upload button as files are staged
-                    filesInput.classList.add('hidden');
-                    uploadButton.classList.add('hidden');
-                    uploadStatus.textContent = ''; // Clear initial upload status, processStatus takes over
-
-                } else {
-                    processFilesButton.classList.add('hidden');
-                    if (!data.rejected_files || data.rejected_files.length === 0) {
-                        uploadStatus.textContent = 'No valid files were processed by the server.';
-                        uploadStatus.style.color = 'orange';
+                try {
+                    const response = await fetch(`/upload/${currentUser}`, {
+                        method: 'POST',
+                        headers: { 'Authorization': 'Basic ' + btoa(currentUser + ":" + currentPassword) },
+                        body: batchFormData
+                    });
+                    
+                    // Try to parse JSON regardless of response.ok for error details from server
+                    let data = {};
+                    try {
+                        data = await response.json();
+                    } catch (jsonError) {
+                        // If JSON parsing fails, server might have sent HTML (e.g. for 413 from proxy)
+                        // or a non-JSON error.
+                        if (!response.ok) { // If HTTP status is also an error
+                             const rawText = await response.text(); // get raw response
+                             data = { detail: `Server returned non-JSON response (Status: ${response.status}). Response: ${rawText.substring(0,100)}...` };
+                        } else { // response.ok but not JSON - less likely for this endpoint
+                             data = { detail: "Server returned non-JSON response but status was OK."};
+                        }
+                        console.error("JSON parsing error during upload batch:", jsonError, "Raw response:", await response.text());
                     }
-                    // Keep file input and upload button visible if no files were actually staged
-                    filesInput.classList.remove('hidden');
-                    uploadButton.classList.remove('hidden');
+
+
+                    if (response.ok) {
+                        if (data.uploaded_files && data.uploaded_files.length > 0) {
+                            anyFilesStaged = true;
+                            aggregatedUploadedFiles.push(...data.uploaded_files);
+                            uploadStatus.innerHTML += `<p style="color: green;">&nbsp;&nbsp;&nbsp;&#10004; Batch ${batchNumber}: ${data.uploaded_files.length} file(s) staged.</p>`;
+                        }
+                        if (data.rejected_files && data.rejected_files.length > 0) {
+                            aggregatedRejectedFiles.push(...data.rejected_files);
+                            uploadStatus.innerHTML += `<p style="color: orange;">&nbsp;&nbsp;&nbsp;&#x26A0; Batch ${batchNumber}: ${data.rejected_files.length} file(s) rejected.</p>`;
+                        }
+                        if (data.instructions_status) {
+                            lastInstructionStatus = data.instructions_status;
+                        }
+                        if (data.message) {
+                            lastGeneralMessage = data.message;
+                        }
+                    } else {
+                        overallSuccess = false;
+                        uploadStatus.innerHTML += `<p style="color: red;">&nbsp;&nbsp;&nbsp;&#10060; Error in batch ${batchNumber}: ${data.detail || response.statusText}</p>`;
+                        // break; // Optional: stop on first batch error
+                    }
+                } catch (error) { // Network or other fetch-related error
+                    overallSuccess = false;
+                    uploadStatus.innerHTML += `<p style="color: red;">&nbsp;&nbsp;&nbsp;&#10060; Network error during batch ${batchNumber}: ${error.message}</p>`;
+                    console.error(`Upload error in batch ${batchNumber}:`, error);
+                    break; // Stop on network error
                 }
-                selectedFilesStore = []; // Clear store after successful staging
-                renderSelectedFilesPreview(); // Clear preview
-            } else {
-                uploadStatus.textContent = `Upload failed: ${data.detail || response.statusText}`;
-                uploadStatus.style.color = 'red';
-                // Keep file input and upload button visible on failure
-                filesInput.classList.remove('hidden');
-                uploadButton.classList.remove('hidden');
             }
-        } catch (error) {
-            uploadStatus.textContent = 'Upload error: Network issue or server down.';
-            uploadStatus.style.color = 'red';
-            console.error("Upload error:", error);
-            // Keep file input and upload button visible on error
+        } else if (customInstructionsText.trim() !== '') { // Only custom instructions, no files
+            uploadStatus.innerHTML = '<h4>Upload Progress:</h4><p>Uploading custom instructions...</p>';
+            const instructionFormData = new FormData();
+            instructionFormData.append('custom_instructions', customInstructionsText);
+
+            try {
+                const response = await fetch(`/upload/${currentUser}`, {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Basic ' + btoa(currentUser + ":" + currentPassword) },
+                    body: instructionFormData
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    if (data.instructions_status) {
+                        lastInstructionStatus = data.instructions_status;
+                    }
+                    if (data.message) {
+                        lastGeneralMessage = data.message;
+                    }
+                } else {
+                    overallSuccess = false;
+                    lastGeneralMessage = `Error uploading instructions: ${data.detail || response.statusText}`;
+                }
+            } catch (error) {
+                overallSuccess = false;
+                lastGeneralMessage = `Network error uploading instructions: ${error.message}`;
+                console.error("Instruction upload error:", error);
+            }
+        }
+
+        // After all batches or instruction-only upload: Display Summary
+        let summaryHTML = '<h4>Upload Summary:</h4>';
+        if (selectedFilesStore.length > 0) { // If files were part of the attempt
+            summaryHTML += `<p>Total files selected for upload: ${selectedFilesStore.length}</p>`;
+            if (aggregatedUploadedFiles.length > 0) {
+                summaryHTML += `<p style="color: green;">Total files successfully staged: ${aggregatedUploadedFiles.length}</p>`;
+            }
+            if (aggregatedRejectedFiles.length > 0) {
+                summaryHTML += `<p style="color: orange;">Total files rejected: ${aggregatedRejectedFiles.length}</p>`;
+                // aggregatedRejectedFiles.forEach(rf => summaryHTML += `<p style="color: orange;">&nbsp;&nbsp;- ${rf.name}: ${rf.reason}</p>`);
+            }
+            if (aggregatedUploadedFiles.length === 0 && selectedFilesStore.length > 0) {
+                 summaryHTML += `<p style="color: red;">No files were successfully staged from the selection.</p>`;
+            }
+        }
+
+        if (lastInstructionStatus) {
+            let color = 'var(--text-color, black)';
+            if (lastInstructionStatus.startsWith('Failed')) color = 'red';
+            else if (lastInstructionStatus.includes('saved as')) color = 'green';
+            else if (lastInstructionStatus.includes('submitted empty')) color = 'orange';
+            summaryHTML += `<p>Instructions Status: <span style="color: ${color};">${lastInstructionStatus}</span></p>`;
+        }
+        
+        if (lastGeneralMessage && !(selectedFilesStore.length > 0 && anyFilesStaged)) { // Show general message if relevant
+            summaryHTML += `<p>${lastGeneralMessage}</p>`;
+        }
+
+        if (!overallSuccess) {
+            summaryHTML += '<p style="color: red;">One or more steps in the upload process encountered an error. Please review messages above.</p>';
+        } else if (selectedFilesStore.length === 0 && customInstructionsText.trim() !== '' && lastInstructionStatus.includes('saved as')) {
+            summaryHTML += '<p style="color: green;">Custom instructions submitted successfully.</p>';
+        } else if (anyFilesStaged) {
+             summaryHTML += '<p style="color: green;">File upload process completed.</p>';
+        }
+
+
+        uploadStatus.innerHTML += summaryHTML; // Append summary to progress messages
+
+        if (anyFilesStaged) {
+            processFilesButton.textContent = 'Confirm and Process Staged Files';
+            processFilesButton.classList.remove('hidden');
+            processStatus.textContent = 'Please click "Confirm and Process Staged Files" to build/update your RAG.';
+            processStatus.style.color = 'var(--primary-color, blue)';
+            
+            filesInput.classList.add('hidden');
+            if (customInstructionsInput) customInstructionsInput.classList.add('hidden');
+            uploadButton.classList.add('hidden'); // Hide main upload button
+            
+            selectedFilesStore = []; 
+            renderSelectedFilesPreview();
+            // customInstructionsInput.value = ''; // Optionally clear
+        } else {
             filesInput.classList.remove('hidden');
-            uploadButton.classList.remove('hidden');
-        } finally {
-            // Only re-enable upload button if it's still visible (i.e., staging didn't hide it)
-            if (!uploadButton.classList.contains('hidden')) {
-                uploadButton.disabled = false;
-                uploadButton.textContent = 'Upload Files';
-            }
+            if (customInstructionsInput) customInstructionsInput.classList.remove('hidden');
+            uploadButton.classList.remove('hidden'); // Keep upload button visible for retry
+        }
+
+        // Reset upload button state if it's still visible
+        if (!uploadButton.classList.contains('hidden')) {
+            uploadButton.disabled = false;
+            uploadButton.textContent = 'Upload Files & Instructions';
         }
     });
 
@@ -371,8 +691,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Show file input and upload button again for next batch
                 filesInput.classList.remove('hidden');
+                if (customInstructionsInput) customInstructionsInput.classList.remove('hidden'); // Show instructions input
                 uploadButton.classList.remove('hidden');
-                uploadButton.textContent = 'Upload Files';
+                uploadButton.textContent = 'Upload Files & Instructions'; // Updated button text
                 uploadButton.disabled = false;
 
                 // --- START: API Info Box Logic ---
@@ -411,10 +732,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 processFilesButton.textContent = 'Confirm and Process Files';
             }
         } catch (error) {
-            processStatus.textContent = 'Processing error: Network issue or server down.';
-            processStatus.style.color = 'red';
-            console.error("Processing error:", error);
-            // Don't hide the button on failure, allow retry
+            processStatus.textContent = 'Processing request timed out or a network issue occurred. The process might still be running on the server. Please check RAG status again in a few moments.';
+            processStatus.style.color = 'orange'; // Changed to orange to indicate uncertainty
+            console.error("Processing error/timeout:", error);
+            // Re-enable button for user to acknowledge message or retry (if applicable for the error)
             processFilesButton.disabled = false;
             processFilesButton.textContent = 'Confirm and Process Files';
         } finally {
@@ -427,18 +748,36 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    toggleChatButton.addEventListener('click', () => { // This is now the "Chat with Default RAG" button
+    chatDefaultRagButton.addEventListener('click', () => { // Updated from toggleChatButton
         uploadSection.classList.remove('active-section');
         uploadSection.classList.add('hidden');
         chatSection.classList.add('active-section');
         chatSection.classList.remove('hidden');
 
         chatTitle.textContent = `Chat with Default RAG Agent`;
-        if (chatTargetIsCustom || !currentSessionId) { // If changing target or no session ID
+        if (chatTargetIsCustom || streamWithSteps || !currentSessionId) { // Reset session if mode changes
             currentSessionId = `chat_default_${currentUser}_${Date.now()}`;
         }
-        chatTargetIsCustom = false; // Target default RAG
+        chatTargetIsCustom = false;
+        streamWithSteps = false; // Ensure normal chat
         clearChat();
+        appendChatMessage('system', 'Interacting with Default RAG (standard mode).');
+    });
+
+    chatDefaultRagSseButton.addEventListener('click', () => { // New listener for SSE button
+        uploadSection.classList.remove('active-section');
+        uploadSection.classList.add('hidden');
+        chatSection.classList.add('active-section');
+        chatSection.classList.remove('hidden');
+
+        chatTitle.textContent = `Chat with Default RAG Agent (Streaming Steps)`;
+        if (chatTargetIsCustom || !streamWithSteps || !currentSessionId) { // Reset session if mode changes
+            currentSessionId = `chat_default_sse_${currentUser}_${Date.now()}`;
+        }
+        chatTargetIsCustom = false;
+        streamWithSteps = true; // Enable SSE streaming with steps
+        clearChat();
+        appendChatMessage('system', 'Interacting with Default RAG (streaming steps). Intermediate agent messages will be shown.');
     });
 
     if (chatCustomRagButton) {
@@ -453,11 +792,13 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 chatTitle.textContent = `Chat with Custom RAG Agent`; // Fallback
             }
-            if (!chatTargetIsCustom || !currentSessionId) { // If changing target or no session ID
+            if (!chatTargetIsCustom || streamWithSteps || !currentSessionId) { // If changing target or no session ID
                 currentSessionId = `chat_${currentUser}_${Date.now()}`;
             }
             chatTargetIsCustom = true; // Target custom RAG
+            streamWithSteps = false; // Custom RAG currently uses standard chat
             clearChat();
+            appendChatMessage('system', `Interacting with ${currentUser}'s RAG (standard mode).`);
         });
     }
 
@@ -470,8 +811,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Ensure file input and upload button are visible when navigating back
         filesInput.classList.remove('hidden');
+        if (customInstructionsInput) customInstructionsInput.classList.remove('hidden'); // Show instructions input
         uploadButton.classList.remove('hidden');
-        uploadButton.textContent = 'Upload Files';
+        uploadButton.textContent = 'Upload Files & Instructions'; // Updated button text
         uploadButton.disabled = false;
     });
 
@@ -486,20 +828,35 @@ document.addEventListener('DOMContentLoaded', () => {
         chatSubmitButton.disabled = true;
         chatStatus.textContent = '';
 
-        const thinkingMessage = appendChatMessage('agent', 'Thinking...', true);
-
-        const endpoint = chatTargetIsCustom && currentUser ? `/run/${currentUser}` : '/run';
-
-        // Ensure session ID is generated if somehow missed (e.g., direct navigation or refresh)
+        // Determine endpoint based on streamWithSteps and chatTargetIsCustom
+        let endpoint = '/run'; // Default
+        if (streamWithSteps) {
+            endpoint = chatTargetIsCustom && currentUser ? `/run_sse/${currentUser}` : '/run_sse';
+        } else {
+            endpoint = chatTargetIsCustom && currentUser ? `/run/${currentUser}` : '/run';
+        }
+        
+        // Ensure session ID is generated if somehow missed
         if (!currentSessionId) {
             if (chatTargetIsCustom && currentUser) {
                 currentSessionId = `chat_${currentUser}_${Date.now()}`;
+            } else if (streamWithSteps) {
+                currentSessionId = `chat_default_sse_${currentUser}_${Date.now()}`;
             } else {
                 currentSessionId = `chat_default_${currentUser}_${Date.now()}`;
             }
             console.warn("Session ID was not set, generated new one:", currentSessionId);
         }
 
+        if (streamWithSteps) {
+            await handleSseStream(endpoint, message);
+        } else {
+            await handleStandardChat(endpoint, message);
+        }
+    });
+
+    async function handleStandardChat(endpoint, promptText) {
+        const thinkingMessage = appendChatMessage('agent', 'Thinking...', true);
         try {
             const response = await fetch(endpoint, {
                 method: 'POST',
@@ -508,11 +865,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     'Authorization': 'Basic ' + btoa(currentUser + ":" + currentPassword)
                 },
                 body: JSON.stringify({
-                    "messages": [{ "role": "user", "content": message }],
-                    "context_overrides": {
-                        "user_id": currentUser,
-                        "session_id": currentSessionId // Use the stable session ID
-                    }
+                    "prompt": promptText,
+                    "user_id": currentUser,
+                    "session_id": currentSessionId
                 })
             });
 
@@ -541,26 +896,173 @@ document.addEventListener('DOMContentLoaded', () => {
             appendChatMessage('agent', 'Error: Could not connect to the agent.');
             chatStatus.textContent = 'Chat error: Network issue or server down.';
             chatStatus.style.color = 'red';
-            console.error("Chat error:", error);
+            console.error("Chat error (standard):", error);
         } finally {
             chatInput.disabled = false;
             chatSubmitButton.disabled = false;
             chatInput.focus();
         }
-    });
+    }
 
-    function appendChatMessage(sender, text, isThinking = false) {
+    async function handleSseStream(endpoint, promptText) {
+        let agentMessageElement = null; // To update the same message element for streaming
+        let accumulatedText = "";
+
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Basic ' + btoa(currentUser + ":" + currentPassword)
+                },
+                body: JSON.stringify({
+                    prompt: promptText,
+                    user_id: currentUser,
+                    session_id: currentSessionId,
+                    stream_events: true // Explicitly request detailed events if backend supports
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+                appendChatMessage('agent', `Error starting stream: ${errorData.detail || 'Failed to connect'}`);
+                chatStatus.textContent = `Stream error: ${errorData.detail || response.statusText}`;
+                chatStatus.style.color = 'red';
+                return;
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                    if (agentMessageElement && accumulatedText.trim() === '') {
+                        // If stream ended and no text was ever added, remove the "Agent is thinking..."
+                        agentMessageElement.remove();
+                    } else if (agentMessageElement) {
+                        // Finalize the message - remove 'thinking' class if it was added
+                        agentMessageElement.classList.remove('thinking');
+                    }
+                    appendChatMessage('system', 'Stream ended.');
+                    break;
+                }
+                buffer += decoder.decode(value, { stream: true });
+
+                let eolIndex;
+                while ((eolIndex = buffer.indexOf('\n\n')) >= 0) { // SSE messages are separated by double newlines
+                    const message = buffer.slice(0, eolIndex).trim();
+                    buffer = buffer.slice(eolIndex + 2);
+
+                    if (message.startsWith('data: ')) {
+                        const jsonData = message.substring(5);
+                        try {
+                            const eventData = JSON.parse(jsonData);
+                            
+                            // Remove initial "Thinking..." if this is the first actual content
+                            if (agentMessageElement && agentMessageElement.classList.contains('thinking') && eventData.content?.parts?.[0]?.text) {
+                                agentMessageElement.remove();
+                                agentMessageElement = null; 
+                                accumulatedText = "";
+                            }
+
+                            if (eventData.event === 'agent_request' && eventData.data?.message) {
+                                appendChatMessage('system', `Agent Request: ${eventData.data.message}`);
+                            } else if (eventData.event === 'tool_code' && eventData.data?.tool_name) {
+                                appendChatMessage('system', `Using Tool: ${eventData.data.tool_name}`);
+                                if(eventData.data.tool_input) {
+                                    const inputStr = JSON.stringify(eventData.data.tool_input, null, 2);
+                                    appendChatMessage('system', `Tool Input: <pre>${inputStr.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>`, false, 'tool-input-message');
+                                }
+                            } else if (eventData.event === 'tool_response' && eventData.data?.tool_name) {
+                                appendChatMessage('system', `Tool Response from ${eventData.data.tool_name} received.`);
+                                 if(eventData.data.tool_output) {
+                                    const outputStr = typeof eventData.data.tool_output === 'string' ? eventData.data.tool_output : JSON.stringify(eventData.data.tool_output, null, 2);
+                                    appendChatMessage('system', `Tool Output: <pre>${outputStr.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>`, false, 'tool-output-message');
+                                }
+                            } else if (eventData.event === 'agent_response_start') {
+                                // This might be where you initialize the agent's message bubble
+                                if (!agentMessageElement) {
+                                    agentMessageElement = appendChatMessage('agent', '...', true); // Start with a placeholder
+                                }
+                            } else if (eventData.content && eventData.content.parts && eventData.content.parts[0].text) {
+                                const textPart = eventData.content.parts[0].text;
+                                accumulatedText += textPart;
+                                if (!agentMessageElement) {
+                                    agentMessageElement = appendChatMessage('agent', accumulatedText, !eventData.is_final_response);
+                                } else {
+                                    agentMessageElement.innerHTML = `<strong>Agent:</strong> ${accumulatedText.replace(/</g, "&lt;").replace(/>/g, "&gt;")}`;
+                                    if (!eventData.is_final_response) {
+                                        agentMessageElement.classList.add('thinking'); // Keep it looking like it's typing
+                                    } else {
+                                        agentMessageElement.classList.remove('thinking');
+                                    }
+                                }
+                            } else if (eventData.is_final_response) {
+                                if (agentMessageElement) {
+                                    agentMessageElement.classList.remove('thinking');
+                                }
+                                // If there was no content part but it's final, ensure any "Thinking" is removed or updated.
+                                if (!accumulatedText && agentMessageElement) {
+                                     agentMessageElement.innerHTML = `<strong>Agent:</strong> (No textual response)`;
+                                }
+                            } else if (eventData.event === 'error') {
+                                appendChatMessage('system', `Stream Error: ${eventData.data?.message || 'Unknown error'}`);
+                            } else if (eventData.event) { // Catch other named events
+                                appendChatMessage('system', `Event: ${eventData.event} - ${JSON.stringify(eventData.data || {})}`);
+                            }
+
+
+                        } catch (e) {
+                            console.error("Error parsing SSE event data:", e, jsonData);
+                            appendChatMessage('system', `Error parsing stream data: ${jsonData.substring(0,100)}...`);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error("SSE Chat error:", error);
+            appendChatMessage('agent', 'Error: Could not connect to the streaming agent.');
+            chatStatus.textContent = 'Stream error: Network issue or server down.';
+            chatStatus.style.color = 'red';
+            if (agentMessageElement) agentMessageElement.classList.remove('thinking');
+        } finally {
+            chatInput.disabled = false;
+            chatSubmitButton.disabled = false;
+            chatInput.focus();
+        }
+    }
+
+    function appendChatMessage(sender, text, isThinking = false, customClass = null) {
         const messageElement = document.createElement('div');
         messageElement.classList.add('message');
-        messageElement.classList.add(sender === 'user' ? 'user-message' : 'agent-message');
-
-        if (isThinking) {
-            messageElement.classList.add('thinking');
-            messageElement.textContent = text;
-        } else {
-            const sanitizedText = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-            messageElement.innerHTML = `<strong>${sender.charAt(0).toUpperCase() + sender.slice(1)}:</strong> ${sanitizedText}`;
+        messageElement.classList.add(sender === 'user' ? 'user-message' : (sender === 'system' ? 'system-message' : 'agent-message'));
+        if (customClass) {
+            messageElement.classList.add(customClass);
         }
+
+        const senderDisplay = sender.charAt(0).toUpperCase() + sender.slice(1);
+
+        const strongSender = document.createElement('strong');
+        strongSender.textContent = senderDisplay + ': ';
+        messageElement.appendChild(strongSender);
+
+        const contentSpan = document.createElement('span');
+        contentSpan.classList.add('message-content'); // Added class for styling
+
+        if (isThinking && sender === 'agent') {
+            messageElement.classList.add('thinking');
+            contentSpan.textContent = text; // Thinking message is plain text
+        } else if (sender === 'agent') {
+            contentSpan.innerHTML = markdownToHtml(text);
+        } else if ((sender === 'system' || customClass === 'tool-input-message' || customClass === 'tool-output-message') && text.includes('<pre>')) {
+            // For system messages with <pre> (like tool inputs/outputs), trust the HTML
+            contentSpan.innerHTML = text;
+        } else { // User messages or simple system messages without pre-formatted HTML
+            contentSpan.textContent = text; // Display as plain text, browser will escape
+        }
+        messageElement.appendChild(contentSpan);
 
         chatMessages.appendChild(messageElement);
         chatMessages.scrollTop = chatMessages.scrollHeight;

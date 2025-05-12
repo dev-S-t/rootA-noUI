@@ -290,6 +290,171 @@ button:hover {
 }
 
 /****************************************/
+/*    Chat Message Specific Styling     */
+/****************************************/
+
+#chat-messages .message strong {
+    font-weight: 600; /* Ensure sender label is bold */
+}
+
+#chat-messages .message .message-content {
+    display: block; /* Allow block elements inside to behave correctly */
+    margin-top: 4px; /* Space between sender and content */
+}
+
+#chat-messages .system-message {
+    background-color: #f0f0f0; /* Light grey for system messages */
+    color: #555;
+    font-style: italic;
+    font-size: 0.9em;
+    border-left: 3px solid #ccc;
+    margin-right: auto;
+    margin-left: auto; /* Center system messages if desired, or keep aligned with agent */
+    max-width: 90%;
+    border-bottom-left-radius: 5px;
+    border-bottom-right-radius: 5px;
+}
+
+#chat-messages .tool-input-message,
+#chat-messages .tool-output-message {
+    background-color: #2c3e50; /* Darker background for tool messages */
+    color: #ecf0f1; /* Light text for contrast */
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.85em;
+    border-left: 3px solid #1abc9c; /* Teal accent for tool messages */
+    margin-right: auto;
+    max-width: 90%;
+}
+
+#chat-messages .tool-input-message pre,
+#chat-messages .tool-output-message pre {
+    background-color: transparent; /* Inherit from parent message */
+    color: inherit;
+    padding: 8px;
+    margin: 0;
+    border-radius: 0;
+    border: none;
+    white-space: pre-wrap; /* Wrap long lines in pre */
+    word-break: break-all; /* Break long words/strings */
+}
+
+/* Markdown Element Styling within Chat Messages */
+#chat-messages .message .message-content h1,
+#chat-messages .message .message-content h2,
+#chat-messages .message .message-content h3,
+#chat-messages .message .message-content h4,
+#chat-messages .message .message-content h5,
+#chat-messages .message .message-content h6 {
+    margin-top: 0.8em;
+    margin-bottom: 0.4em;
+    line-height: 1.3;
+    color: inherit; /* Inherit color from message type */
+}
+
+#chat-messages .agent-message .message-content h1, 
+#chat-messages .agent-message .message-content h2, 
+#chat-messages .agent-message .message-content h3 {
+    color: #0056b3; /* Darker blue for headings in agent messages */
+}
+
+#chat-messages .message .message-content p {
+    margin-top: 0;
+    margin-bottom: 0.6em;
+    line-height: 1.6;
+}
+
+#chat-messages .message .message-content ul,
+#chat-messages .message .message-content ol {
+    margin-top: 0.5em;
+    margin-bottom: 0.8em;
+    padding-left: 25px;
+}
+
+#chat-messages .message .message-content li {
+    margin-bottom: 0.3em;
+}
+
+#chat-messages .message .message-content blockquote {
+    margin: 0.8em 0;
+    padding: 0.5em 15px;
+    border-left: 4px solid #007bff;
+    background-color: rgba(0, 123, 255, 0.05);
+    color: #333;
+    font-style: italic;
+}
+
+#chat-messages .agent-message .message-content blockquote {
+    border-left-color: #0056b3;
+    background-color: rgba(0, 86, 179, 0.05);
+}
+
+#chat-messages .message .message-content pre {
+    background-color: rgba(0, 0, 0, 0.05); /* Slightly different for general pre in agent messages */
+    color: #333;
+    padding: 10px;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 0.8em 0;
+    border: 1px solid rgba(0,0,0,0.1);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+#chat-messages .agent-message .message-content pre {
+     background-color: #e9ecef; /* Match agent message bubble slightly */
+     border: 1px solid #ced4da;
+}
+
+#chat-messages .message .message-content code {
+    font-family: 'Courier New', Courier, monospace;
+    background-color: rgba(0,0,0,0.04);
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+
+#chat-messages .message .message-content pre code {
+    background-color: transparent;
+    padding: 0;
+    border-radius: 0;
+    border: none;
+    font-size: inherit; /* Code inside pre should inherit pre's font size */
+}
+
+#chat-messages .message .message-content a {
+    color: #007bff;
+    text-decoration: underline;
+}
+
+#chat-messages .message .message-content a:hover {
+    color: #0056b3;
+}
+
+#chat-messages .user-message .message-content a {
+    color: #fff; /* Make links in user messages white */
+    font-weight: bold;
+}
+
+#chat-messages .user-message .message-content a:hover {
+    color: #eee;
+}
+
+#chat-messages .message .message-content hr {
+    border: none;
+    border-top: 1px solid #ccc;
+    margin: 1em 0;
+}
+
+#chat-messages .message.thinking .message-content {
+    font-style: italic;
+    color: #777;
+}
+
+#chat-messages .agent-message.thinking .message-content {
+    color: #555;
+}
+
+/****************************************/
 /*             Footer                   */
 /****************************************/
 footer {

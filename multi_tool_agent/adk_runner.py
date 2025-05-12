@@ -41,6 +41,15 @@ async def call_agent_async(query: str, runner, user_id, session_id):
                 final_response_text = f"Agent escalated: {event.error_message or 'No specific message.'}"
             break
     print(f"<<< Agent Response: {final_response_text}")
+
+    # Add session to memory after the interaction
+    completed_session = session_service.get_session(app_name=APP_NAME, user_id=user_id, session_id=session_id)
+    if completed_session:
+        memory_service.add_session_to_memory(completed_session)
+        print(f"--- Session {session_id} added to memory ---")
+    else:
+        print(f"--- Could not retrieve session {session_id} to add to memory ---")
+
     return final_response_text
 
 # --- Example Usage ---
