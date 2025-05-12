@@ -1,35 +1,61 @@
-/****************************************/
+/******************************************/
 /*            General Styles            */
-/****************************************/
+/******************************************/
+
+/* Define a modern color palette */
+:root {
+    --primary-color: #007bff; /* Blue - for primary actions and highlights */
+    --primary-color-dark: #0056b3; /* Darker blue for hover states */
+    --secondary-color: #6c757d; /* Grey - for secondary buttons and less important elements */
+    --secondary-color-dark: #5a6268; /* Darker grey for hover */
+    --accent-color: #17a2b8; /* Teal - for informational messages and accents */
+    --accent-color-dark: #138496; /* Darker teal for hover */
+    --success-color: #28a745; /* Green - for success states */
+    --success-color-dark: #218838; /* Darker green for hover */
+    --danger-color: #dc3545; /* Red - for errors and destructive actions */
+    --danger-color-dark: #c82333; /* Darker red for hover */
+    --light-bg: #f8f9fa; /* Very light grey for backgrounds */
+    --medium-bg: #e9ecef; /* Light grey for section backgrounds, footers */
+    --dark-bg: #343a40; /* Dark grey for specific elements if needed */
+    --text-color: #333; /* Main text color */
+    --text-color-light: #fff; /* Text on dark backgrounds */
+    --border-color: #dee2e6; /* Standard border color */
+    --border-radius-sm: 4px;
+    --border-radius-md: 8px;
+    --border-radius-lg: 12px;
+    --box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    --font-family-sans-serif: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
 body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: var(--font-family-sans-serif);
     margin: 0;
     padding: 0;
-    background-color: #f4f7f6; /* Light, clean background */
-    color: #333;
+    background-color: var(--light-bg);
+    color: var(--text-color);
     display: flex;
     justify-content: center;
-    align-items: flex-start; /* Align to top for longer content */
+    align-items: flex-start;
     min-height: 100vh;
-    padding-top: 20px; /* Add some space at the top */
-    padding-bottom: 20px; /* Add some space at the bottom */
+    padding-top: 20px;
+    padding-bottom: 20px;
 }
 
 .container {
     width: 90%;
-    max-width: 1000px;
-    background-color: #fff;
-    border-radius: 12px;
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+    max-width: 1000px; /* Keep max-width for larger screens */
+    background-color: var(--text-color-light);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--box-shadow);
     overflow: hidden;
 }
 
 header {
-    background: linear-gradient(135deg, #007bff, #0056b3); /* Stunning blue gradient */
-    color: white;
+    background: linear-gradient(135deg, var(--primary-color), var(--primary-color-dark));
+    color: var(--text-color-light);
     padding: 25px 30px;
-    text-align: center;
-    border-bottom: 4px solid #004085;
+    text-align: center; /* Center title if user info is not present or stacked */
+    border-bottom: 4px solid var(--primary-color-dark);
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -43,10 +69,12 @@ header h1 {
 
 #user-info {
     font-size: 0.9em;
+    display: flex;
+    align-items: center;
 }
 
 #user-info span {
-    margin-right: 10px;
+    margin-right: 15px;
 }
 
 main {
@@ -56,142 +84,184 @@ main {
 section {
     margin-bottom: 30px;
     padding: 25px;
-    background-color: #fdfdfd;
-    border-radius: 8px;
-    border: 1px solid #e0e0e0;
+    background-color: var(--text-color-light); /* Cleaner section background */
+    border-radius: var(--border-radius-md);
+    border: 1px solid var(--border-color);
 }
 
 section h2 {
     margin-top: 0;
-    color: #0056b3;
-    border-bottom: 2px solid #007bff;
+    color: var(--primary-color-dark);
+    border-bottom: 2px solid var(--primary-color);
     padding-bottom: 10px;
-    margin-bottom: 20px;
-    font-size: 1.6em;
+    margin-bottom: 25px;
+    font-size: 1.75em; /* Slightly larger for section titles */
+    font-weight: 600;
 }
 
-/* Hide sections by default, JS will manage visibility */
 .hidden {
     display: none !important;
 }
 
-/* Make sections take up more vertical space if active */
 section.active-section {
-    display: flex; /* Use flex to allow content to determine height */
+    display: flex;
     flex-direction: column;
-    min-height: 70vh; /* Ensure active section is reasonably tall */
+    min-height: auto; /* Let content define height, remove fixed min-height */
     padding-bottom: 20px;
 }
 
-#upload-section h2, #chat-section h2 {
-    margin-top: 0;
-    color: var(--primary-color, #007bff);
-}
 
-/****************************************/
+/******************************************/
 /*           Form Styles                */
-/****************************************/
+/******************************************/
 form div {
-    margin-bottom: 18px;
+    margin-bottom: 20px; /* Increased spacing */
 }
 
 label {
     display: block;
     margin-bottom: 8px;
     font-weight: 600;
-    color: #555;
+    color: #555; /* Slightly darker for better contrast */
 }
 
 input[type="text"],
 input[type="password"],
-input[type="file"] {
-    width: calc(100% - 22px); /* Account for padding and border */
+input[type="file"],
+textarea { /* Added textarea */
+    width: calc(100% - 24px); /* Adjusted for padding */
     padding: 12px;
-    border: 1px solid #ccc;
-    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
     box-sizing: border-box;
     font-size: 1em;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus,
+textarea:focus { /* Added textarea */
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
+    outline: none;
 }
 
 input[type="file"] {
-    padding: 8px;
+    padding: 10px; /* Consistent padding */
 }
 
-button[type="submit"],
-button {
-    background-color: #007bff;
-    color: white;
+textarea { /* Specific textarea styling */
+    resize: vertical; /* Allow vertical resize, not horizontal */
+    min-height: 80px;
+}
+
+/* General Button Styling */
+button, .button { /* Added .button class for non-button elements styled as buttons */
+    color: var(--text-color-light);
     padding: 12px 20px;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--border-radius-sm);
     cursor: pointer;
     font-size: 1em;
     font-weight: 500;
-    transition: background-color 0.3s ease;
-    margin-top: 10px; /* Add some top margin to buttons */
+    transition: background-color 0.2s ease, box-shadow 0.2s ease;
+    text-align: center;
+    display: inline-block; /* For consistent behavior */
+    margin-top: 10px;
 }
 
-button:hover {
-    background-color: #0056b3;
+button:hover, .button:hover {
+    box-shadow: 0 2px 5px rgba(0,0,0,0.15);
 }
 
-#logout-button {
-    background-color: #dc3545;
+/* Primary Button (e.g., Login, Submit, Upload) */
+button[type="submit"],
+.button-primary {
+    background-color: var(--primary-color);
 }
-#logout-button:hover {
-    background-color: #c82333;
+button[type="submit"]:hover,
+.button-primary:hover {
+    background-color: var(--primary-color-dark);
 }
 
+/* Secondary/Action Button (e.g., Back to RAG, general actions) */
+.action-button,
+#back-to-upload-button { /* Specific ID for back button */
+    background-color: var(--accent-color);
+}
+.action-button:hover,
+#back-to-upload-button:hover {
+    background-color: var(--accent-color-dark);
+}
+
+/* Navigation Button (e.g., Chat with RAG variants) */
+.nav-button {
+    background-color: var(--secondary-color);
+}
+.nav-button:hover {
+    background-color: var(--secondary-color-dark);
+}
+
+/* Destructive Button (e.g., Logout, Remove File) */
+#logout-button,
+.remove-file-button {
+    background-color: var(--danger-color);
+}
+#logout-button:hover,
+.remove-file-button:hover {
+    background-color: var(--danger-color-dark);
+}
+
+/* Success Button (e.g., Process Files) */
 #process-files-button {
-    background-color: #28a745; /* Green for process */
-    margin-top: 15px;
+    background-color: var(--success-color);
+}
+#process-files-button:hover {
+    background-color: var(--success-color-dark);
 }
 
-#process-files-button:hover {
-    background-color: #218838;
-}
 
 .error-message {
-    color: #dc3545;
+    color: var(--danger-color);
     font-size: 0.9em;
     margin-top: 10px;
 }
 
-.status-message {
-    color: #17a2b8;
+.status-message { /* General status, can be overridden for specific types */
+    color: var(--accent-color);
     font-size: 0.9em;
     margin-top: 10px;
 }
 
-/****************************************/
+#signup-message.success { /* Example of specific status */
+    color: var(--success-color);
+}
+
+
+/******************************************/
 /*           Upload Section             */
-/****************************************/
+/******************************************/
 #db-status-message {
-    padding: 10px;
-    margin-bottom: 15px;
-    border-radius: 5px;
-    background-color: #e9ecef;
-    border: 1px solid #ced4da;
+    padding: 12px 15px; /* Increased padding */
+    margin-bottom: 20px; /* Increased margin */
+    border-radius: var(--border-radius-sm);
+    background-color: var(--medium-bg);
+    border: 1px solid var(--border-color);
     font-size: 0.95em;
 }
 
-#files {
-    border: 1px solid #ccc;
-    padding: 8px;
-    border-radius: 4px;
-    margin-bottom: 10px;
-}
-
 #selected-files-preview {
-    margin-top: 15px;
-    margin-bottom: 15px;
-    padding: 10px;
-    border: 1px dashed var(--primary-color, #007bff);
-    border-radius: 5px;
-    background-color: #f9f9f9;
+    margin-top: 20px;
+    margin-bottom: 20px;
+    padding: 15px;
+    border: 2px dashed var(--primary-color); /* More prominent dash */
+    border-radius: var(--border-radius-md);
+    background-color: var(--light-bg);
+    max-height: 200px; /* Increased max height */
+    overflow-y: auto;
 }
 
-#selected-files-preview.hidden {
+#selected-files-preview.hidden { /* Already defined, just for context */
     display: none;
 }
 
@@ -205,11 +275,11 @@ button:hover {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 8px 10px;
-    border-bottom: 1px solid #eee;
-    background-color: #fff;
-    border-radius: 3px;
-    margin-bottom: 5px;
+    padding: 10px; /* Increased padding */
+    border-bottom: 1px solid var(--border-color);
+    background-color: var(--text-color-light);
+    border-radius: var(--border-radius-sm);
+    margin-bottom: 8px; /* Spacing between items */
     box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 
@@ -221,121 +291,174 @@ button:hover {
     flex-grow: 1;
     margin-right: 10px;
     font-size: 0.9em;
-    color: #333;
+    color: var(--text-color);
+    word-break: break-all;
 }
 
-.remove-file-button {
-    background-color: #ff4d4d;
-    color: white;
-    border: none;
-    padding: 5px 10px;
-    border-radius: 3px;
-    cursor: pointer;
-    font-size: 0.8em;
-    transition: background-color 0.2s ease;
+/* .remove-file-button already styled with general destructive buttons */
+
+#uploaded-files-list, #rejected-files-list {
+    margin-top: 15px;
+    padding-left: 0; /* Remove default list padding */
+}
+#uploaded-files-list li, #rejected-files-list li {
+    list-style-type: none; /* Remove bullets */
+    padding: 8px 0;
+    font-size: 0.9em;
+    border-bottom: 1px solid var(--border-color);
+}
+#uploaded-files-list li:last-child, #rejected-files-list li:last-child {
+    border-bottom: none;
+}
+#rejected-files-list li {
+    color: var(--danger-color);
 }
 
-.remove-file-button:hover {
-    background-color: #cc0000;
+
+.navigation-buttons {
+    margin-top: 25px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    flex-wrap: wrap; /* Allow buttons to wrap on smaller screens */
+    justify-content: flex-start;
+    gap: 10px;
 }
 
-/****************************************/
+/******************************************/
 /*             Chat Section             */
-/****************************************/
+/******************************************/
+#chat-section h2 { /* Ensure chat section title is consistent */
+    color: var(--primary-color-dark);
+    border-bottom: 2px solid var(--primary-color);
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+    font-size: 1.6em; /* Consistent with other section titles */
+}
+
 #chat-window {
-    height: 400px;
-    border: 1px solid #ddd;
-    border-radius: 8px;
+    height: 450px; /* Increased height */
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-md);
     overflow-y: auto;
-    padding: 15px;
-    margin-bottom: 15px;
-    background-color: #f9f9f9;
+    padding: 20px; /* Increased padding */
+    margin-bottom: 20px;
+    background-color: var(--light-bg); /* Light background for chat window */
 }
 
 #chat-messages .message {
-    margin-bottom: 12px;
-    padding: 10px 15px;
-    border-radius: 18px;
-    max-width: 75%;
+    margin-bottom: 15px; /* Increased spacing */
+    padding: 12px 18px; /* Increased padding */
+    border-radius: 18px; /* Keep rounded bubbles */
+    max-width: 80%; /* Slightly wider messages */
     word-wrap: break-word;
+    line-height: 1.5; /* Improved line height */
+    clear: both; /* Ensure messages don't overlap if floating */
 }
 
 #chat-messages .user-message {
-    background-color: #007bff;
-    color: white;
-    margin-left: auto;
-    border-bottom-right-radius: 5px;
+    background-color: var(--primary-color);
+    color: var(--text-color-light);
+    margin-left: auto; /* Align to right */
+    border-bottom-right-radius: var(--border-radius-sm); /* Sharper corner */
+    float: right; /* Float to right */
 }
 
 #chat-messages .agent-message {
-    background-color: #e9ecef;
-    color: #333;
-    margin-right: auto;
-    border-bottom-left-radius: 5px;
+    background-color: var(--medium-bg);
+    color: var(--text-color);
+    margin-right: auto; /* Align to left */
+    border-bottom-left-radius: var(--border-radius-sm); /* Sharper corner */
+    float: left; /* Float to left */
+}
+
+/* Clear floats after messages */
+#chat-messages::after {
+    content: "";
+    clear: both;
+    display: table;
 }
 
 #chat-form {
     display: flex;
+    align-items: center; /* Align input and button */
 }
 
 #chat-input {
     flex-grow: 1;
     margin-right: 10px;
-    border-radius: 20px; /* Pill shape */
-    padding-left: 20px;
+    border-radius: 25px; /* Pill shape */
+    padding: 12px 20px; /* More padding for pill shape */
+    border: 1px solid var(--border-color);
+}
+#chat-input:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
+    outline: none;
 }
 
-#chat-form button {
-    border-radius: 20px; /* Pill shape */
+#chat-form button { /* Send button */
+    border-radius: 25px; /* Pill shape */
+    padding: 12px 25px; /* Adjust padding for pill shape */
+    background-color: var(--primary-color);
+    margin-top: 0; /* Remove top margin as it's flex-aligned */
+}
+#chat-form button:hover {
+    background-color: var(--primary-color-dark);
 }
 
-/****************************************/
+/******************************************/
 /*    Chat Message Specific Styling     */
-/****************************************/
+/******************************************/
 
-#chat-messages .message strong {
-    font-weight: 600; /* Ensure sender label is bold */
+#chat-messages .message strong { /* Sender label */
+    font-weight: 600;
+    display: block;
+    margin-bottom: 4px;
 }
 
 #chat-messages .message .message-content {
-    display: block; /* Allow block elements inside to behave correctly */
-    margin-top: 4px; /* Space between sender and content */
+    display: block;
 }
 
 #chat-messages .system-message {
-    background-color: #f0f0f0; /* Light grey for system messages */
-    color: #555;
+    background-color: var(--light-bg);
+    color: var(--secondary-color-dark);
     font-style: italic;
     font-size: 0.9em;
-    border-left: 3px solid #ccc;
+    border-left: 4px solid var(--secondary-color);
     margin-right: auto;
-    margin-left: auto; /* Center system messages if desired, or keep aligned with agent */
-    max-width: 90%;
-    border-bottom-left-radius: 5px;
-    border-bottom-right-radius: 5px;
+    margin-left: auto;
+    max-width: 95%; /* Wider for system messages */
+    border-radius: var(--border-radius-sm);
+    float: none; /* System messages don't float */
+    clear: both; /* Ensure they take full width available */
 }
 
 #chat-messages .tool-input-message,
 #chat-messages .tool-output-message {
-    background-color: #2c3e50; /* Darker background for tool messages */
-    color: #ecf0f1; /* Light text for contrast */
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 0.85em;
-    border-left: 3px solid #1abc9c; /* Teal accent for tool messages */
-    margin-right: auto;
+    background-color: #2c3e50; /* Dark background for tool messages */
+    color: #ecf0f1;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace; /* Modern mono font stack */
+    font-size: 0.88em; /* Slightly larger for readability */
+    border-left: 4px solid var(--accent-color); /* Teal accent */
+    margin-right: auto; /* Align left */
     max-width: 90%;
+    border-radius: var(--border-radius-sm);
+    float: left; /* Align with agent messages */
+    clear: both;
 }
 
 #chat-messages .tool-input-message pre,
 #chat-messages .tool-output-message pre {
-    background-color: transparent; /* Inherit from parent message */
+    background-color: transparent;
     color: inherit;
-    padding: 8px;
+    padding: 10px; /* More padding */
     margin: 0;
     border-radius: 0;
     border: none;
-    white-space: pre-wrap; /* Wrap long lines in pre */
-    word-break: break-all; /* Break long words/strings */
+    white-space: pre-wrap;
+    word-break: break-all;
 }
 
 /* Markdown Element Styling within Chat Messages */
@@ -346,20 +469,20 @@ button:hover {
 #chat-messages .message .message-content h5,
 #chat-messages .message .message-content h6 {
     margin-top: 0.8em;
-    margin-bottom: 0.4em;
+    margin-bottom: 0.5em;
     line-height: 1.3;
-    color: inherit; /* Inherit color from message type */
+    font-weight: 600;
 }
 
-#chat-messages .agent-message .message-content h1, 
-#chat-messages .agent-message .message-content h2, 
+#chat-messages .agent-message .message-content h1,
+#chat-messages .agent-message .message-content h2,
 #chat-messages .agent-message .message-content h3 {
-    color: #0056b3; /* Darker blue for headings in agent messages */
+    color: var(--primary-color-dark); /* Consistent with section headers */
 }
 
 #chat-messages .message .message-content p {
     margin-top: 0;
-    margin-bottom: 0.6em;
+    margin-bottom: 0.7em; /* Slightly more space */
     line-height: 1.6;
 }
 
@@ -371,244 +494,246 @@ button:hover {
 }
 
 #chat-messages .message .message-content li {
-    margin-bottom: 0.3em;
+    margin-bottom: 0.4em; /* More space for list items */
 }
 
 #chat-messages .message .message-content blockquote {
-    margin: 0.8em 0;
-    padding: 0.5em 15px;
-    border-left: 4px solid #007bff;
-    background-color: rgba(0, 123, 255, 0.05);
-    color: #333;
+    margin: 1em 0; /* More vertical margin */
+    padding: 0.8em 15px; /* More padding */
+    border-left: 4px solid var(--primary-color);
+    background-color: rgba(0, 123, 255, 0.05); /* Lighter background */
+    color: var(--text-color);
     font-style: italic;
 }
 
 #chat-messages .agent-message .message-content blockquote {
-    border-left-color: #0056b3;
+    border-left-color: var(--primary-color-dark);
     background-color: rgba(0, 86, 179, 0.05);
 }
 
-#chat-messages .message .message-content pre {
-    background-color: rgba(0, 0, 0, 0.05); /* Slightly different for general pre in agent messages */
-    color: #333;
-    padding: 10px;
-    border-radius: 4px;
+#chat-messages .message .message-content pre { /* General code blocks in messages */
+    background-color: var(--medium-bg);
+    color: var(--text-color);
+    padding: 12px; /* More padding */
+    border-radius: var(--border-radius-sm);
     overflow-x: auto;
-    margin: 0.8em 0;
-    border: 1px solid rgba(0,0,0,0.1);
+    margin: 1em 0; /* More vertical margin */
+    border: 1px solid var(--border-color);
     white-space: pre-wrap;
     word-break: break-all;
-}
-
-#chat-messages .agent-message .message-content pre {
-     background-color: #e9ecef; /* Match agent message bubble slightly */
-     border: 1px solid #ced4da;
-}
-
-#chat-messages .message .message-content code {
-    font-family: 'Courier New', Courier, monospace;
-    background-color: rgba(0,0,0,0.04);
-    padding: 2px 5px;
-    border-radius: 3px;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
     font-size: 0.9em;
 }
 
-#chat-messages .message .message-content pre code {
+#chat-messages .agent-message .message-content pre {
+     background-color: #e0e0e0; /* Slightly different for agent messages if needed */
+     border: 1px solid #ccc;
+}
+
+#chat-messages .message .message-content code { /* Inline code */
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+    background-color: rgba(0,0,0,0.06); /* Slightly darker for better visibility */
+    padding: 3px 6px; /* More padding */
+    border-radius: var(--border-radius-sm);
+    font-size: 0.9em;
+}
+
+#chat-messages .message .message-content pre code { /* Code within pre, reset some styles */
     background-color: transparent;
     padding: 0;
     border-radius: 0;
     border: none;
-    font-size: inherit; /* Code inside pre should inherit pre's font size */
+    font-size: inherit;
 }
 
 #chat-messages .message .message-content a {
-    color: #007bff;
+    color: var(--primary-color);
     text-decoration: underline;
+    font-weight: 500;
 }
 
 #chat-messages .message .message-content a:hover {
-    color: #0056b3;
+    color: var(--primary-color-dark);
+    text-decoration: none; /* Remove underline on hover for cleaner look */
 }
 
 #chat-messages .user-message .message-content a {
-    color: #fff; /* Make links in user messages white */
+    color: var(--text-color-light); /* Ensure links in user messages are light */
     font-weight: bold;
 }
-
 #chat-messages .user-message .message-content a:hover {
-    color: #eee;
+    color: #e0e0e0; /* Slightly dimmer on hover */
 }
 
 #chat-messages .message .message-content hr {
     border: none;
-    border-top: 1px solid #ccc;
-    margin: 1em 0;
+    border-top: 1px solid var(--border-color);
+    margin: 1.2em 0; /* More space around hr */
 }
 
 #chat-messages .message.thinking .message-content {
     font-style: italic;
-    color: #777;
+    color: var(--secondary-color-dark);
 }
 
 #chat-messages .agent-message.thinking .message-content {
-    color: #555;
+    color: var(--secondary-color);
 }
 
-/****************************************/
+/******************************************/
 /*             Footer                   */
-/****************************************/
+/******************************************/
 footer {
     text-align: center;
-    padding: 20px;
-    background-color: #e9ecef;
-    color: #6c757d;
+    padding: 25px; /* Increased padding */
+    background-color: var(--medium-bg);
+    color: var(--secondary-color-dark);
     font-size: 0.9em;
-    border-top: 1px solid #dee2e6;
+    border-top: 1px solid var(--border-color);
 }
 
-/****************************************/
-/*       Selected Files Preview         */
-/****************************************/
-.selected-files-container {
-    margin-top: 15px;
-    margin-bottom: 15px;
-    padding: 10px;
-    background-color: #f9f9f9;
-    border: 1px dashed #ccc;
-    border-radius: 6px;
-    max-height: 150px; /* Limit height and make scrollable if needed */
-    overflow-y: auto;
-}
-
-.selected-file-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px;
-    border-bottom: 1px solid #eee;
-    font-size: 0.9em;
-}
-
-.selected-file-item:last-child {
-    border-bottom: none;
-}
-
-.selected-file-item span {
-    flex-grow: 1;
-    margin-right: 10px;
-    word-break: break-all; /* Prevent long filenames from breaking layout */
-}
-
-.remove-file-button {
-    background-color: #ff4d4d;
-    color: white;
-    border: none;
-    padding: 4px 8px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 0.8em;
-}
-
-.remove-file-button:hover {
-    background-color: #cc0000;
-}
-
-/****************************************/
-/*       General Action Button Style    */
-/****************************************/
-.action-button {
-    background-color: #17a2b8; /* Teal for general actions */
-    color: white;
-    padding: 10px 15px;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 1em;
-    margin-top: 10px;
-    transition: background-color 0.3s ease;
-}
-
-.action-button:hover {
-    background-color: #138496;
-}
-
-.nav-button {
-    background-color: var(--secondary-color, #6c757d);
-    margin-left: 10px; /* Space out nav buttons if they are next to each other */
-}
-
-.nav-button:hover {
-    background-color: #5a6268;
-}
-
-.navigation-buttons {
-    margin-top: 20px;
-    padding-top: 15px;
-    border-top: 1px solid #eee;
-    display: flex; /* Align buttons in a row */
-    justify-content: flex-start; /* Align to the start */
-    gap: 10px; /* Space between buttons */
-}
-
-/****************************************/
+/******************************************/
 /*           API Info Box               */
-/****************************************/
+/******************************************/
 #api-info-box {
-    margin-top: 20px;
-    padding: 15px;
-    border: 1px solid var(--primary-color, #007bff);
-    border-radius: 5px;
-    background-color: #e7f3ff; /* Light blue background */
-    color: #333;
+    margin-top: 25px;
+    padding: 20px; /* Increased padding */
+    border: 1px solid var(--primary-color);
+    border-radius: var(--border-radius-md);
+    background-color: #e7f3ff; /* Light blue background, can use a variable if defined */
+    color: var(--text-color);
 }
 
 #api-info-box h3 {
     margin-top: 0;
-    color: var(--primary-color, #007bff);
+    color: var(--primary-color-dark); /* Consistent with section titles */
+    font-size: 1.2em; /* Slightly smaller than section titles */
+    margin-bottom: 15px;
 }
 
 #api-info-box p {
-    margin-bottom: 10px;
+    margin-bottom: 12px;
     line-height: 1.6;
 }
 
-#api-info-box code {
-    background-color: #fff;
-    padding: 2px 5px;
-    border-radius: 3px;
-    border: 1px solid #ddd;
-    font-family: 'Courier New', Courier, monospace;
+#api-info-box code { /* Inline code within API box */
+    background-color: var(--text-color-light);
+    padding: 3px 6px;
+    border-radius: var(--border-radius-sm);
+    border: 1px solid var(--border-color);
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
     word-break: break-all;
+    font-size: 0.9em;
 }
 
-#api-info-box pre {
-    background-color: #f0f0f0;
-    padding: 10px;
-    border-radius: 4px;
-    overflow-x: auto; /* Allow horizontal scrolling for long code lines */
-    border: 1px solid #ccc;
+#api-info-box pre { /* Code block within API box */
+    background-color: var(--dark-bg); /* Dark background for code blocks */
+    color: var(--light-bg); /* Light text on dark background */
+    padding: 15px;
+    border-radius: var(--border-radius-sm);
+    overflow-x: auto;
+    border: 1px solid var(--dark-bg); /* Border same as background for seamless look */
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+    font-size: 0.9em;
 }
 
-#api-info-box pre code {
-    background-color: transparent; /* Code inside pre shouldn't have its own background */
+#api-info-box pre code { /* Code inside pre, reset styles */
+    background-color: transparent;
     border: none;
     padding: 0;
+    color: inherit; /* Inherit color from pre */
+    font-size: inherit;
 }
 
-/* Responsive adjustments (optional, can be expanded) */
+/* Responsive adjustments */
 @media (max-width: 768px) {
+    .container {
+        width: 95%; /* Slightly more width on smaller screens */
+        margin-top: 10px;
+        margin-bottom: 10px;
+    }
     header {
         flex-direction: column;
-        padding: 20px;
+        padding: 20px 15px; /* Adjust padding */
+        text-align: center;
     }
     header h1 {
         font-size: 1.8em;
         margin-bottom: 10px;
     }
+    #user-info {
+        margin-top: 10px; /* Space between title and user info */
+    }
     main {
-        padding: 20px;
+        padding: 20px 15px; /* Adjust padding */
     }
     section {
-        padding: 20px;
+        padding: 20px 15px; /* Adjust padding */
+    }
+    section h2 {
+        font-size: 1.5em; /* Adjust heading size */
+    }
+
+    #chat-messages .message {
+        max-width: 90%; /* Allow messages to be a bit wider on small screens */
+    }
+    #chat-form {
+        flex-direction: column; /* Stack input and button */
+    }
+    #chat-input {
+        margin-right: 0;
+        margin-bottom: 10px; /* Space between input and button */
+    }
+    #chat-form button {
+        width: 100%; /* Full width button */
+    }
+    .navigation-buttons {
+        justify-content: center; /* Center buttons if they wrap */
     }
 }
+
+@media (max-width: 480px) {
+    body {
+        padding-top: 10px;
+        padding-bottom: 10px;
+    }
+    header h1 {
+        font-size: 1.6em;
+    }
+    section h2 {
+        font-size: 1.3em;
+    }
+    button, .button {
+        font-size: 0.95em; /* Slightly smaller buttons */
+        padding: 10px 15px;
+    }
+    #chat-window {
+        height: 350px; /* Adjust chat window height */
+    }
+}
+
+/* Ensure login/signup links are styled consistently */
+#login-section p a,
+#signup-section p a {
+    color: var(--primary-color);
+    text-decoration: none;
+    font-weight: 500;
+}
+#login-section p a:hover,
+#signup-section p a:hover {
+    text-decoration: underline;
+    color: var(--primary-color-dark);
+}
+
+/* Remove old styles that might conflict or are now handled by variables/new classes */
+/* For example, specific color overrides for #upload-section h2, #chat-section h2 are now handled by general section h2 styling */
+/* .selected-files-container is now #selected-files-preview */
+/* General .action-button is now more specific or uses utility classes like .button-primary, .button-secondary etc. */
+/* Ensure .nav-button uses var(--secondary-color) as intended */
+/* The old .remove-file-button styling is now part of the general destructive button style */
+
+/* Final check for consistency 
+   No specific overrides needed here as general styles should apply.
+   If #upload-section h2 or #chat-section h2 need unique styling distinct from other section h2,
+   those rules would be added here.
+*/
