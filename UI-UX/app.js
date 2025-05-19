@@ -36,7 +36,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatDefaultRagButton = document.getElementById('chat-default-rag-button');
     const chatDefaultRagSseButton = document.getElementById('chat-default-rag-sse-button'); // New button
     const chatCustomRagButton = document.getElementById('chat-custom-rag-button');
+    const chatCustomRagSseButton = document.getElementById('chat-custom-rag-sse-button'); // New button for custom RAG with steps
     const backToUploadButton = document.getElementById('back-to-upload-button');
+
+    // Log initial element fetching
+    console.log('Initial DOM elements:');
+    console.log('chatCustomRagButton:', chatCustomRagButton);
+    console.log('chatCustomRagSseButton:', chatCustomRagSseButton);
 
     const chatMessages = document.getElementById('chat-messages');
     const chatForm = document.getElementById('chat-form');
@@ -53,6 +59,14 @@ document.addEventListener('DOMContentLoaded', () => {
     let chatTargetIsCustom = false; // To track which RAG the chat is targeting
     let currentSessionId = null; // Added for stable session ID
     let streamWithSteps = false; // New flag for SSE streaming with steps
+
+    // --- Helper Function to Generate Session ID ---
+    function generateSessionId() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    }
 
     // --- Helper Functions for Markdown Rendering ---
     function decodeHtmlEntities(text) {
@@ -215,6 +229,7 @@ document.addEventListener('DOMContentLoaded', () => {
             chatDefaultRagButton.classList.add('hidden'); // Updated
             chatDefaultRagSseButton.classList.add('hidden'); // Hide SSE button
             if (chatCustomRagButton) chatCustomRagButton.classList.add('hidden');
+            if (chatCustomRagSseButton) chatCustomRagSseButton.classList.add('hidden'); // Hide custom SSE button
 
             clearUploadInfo();
             clearChat();
@@ -434,6 +449,9 @@ document.addEventListener('DOMContentLoaded', () => {
         dbStatusMessage.textContent = 'Checking RAG status...';
         dbStatusMessage.style.color = 'var(--primary-color, blue)';
         processFilesButton.classList.add('hidden');
+        console.log('[fetchUserRagStatus] Called for user:', currentUser);
+        console.log('[fetchUserRagStatus] chatCustomRagSseButton element at start of function:', chatCustomRagSseButton);
+
 
         try {
             const response = await fetch(`/upload/${currentUser}`, {
@@ -441,10 +459,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Authorization': 'Basic ' + btoa(currentUser + ":" + currentPassword) }
             });
             const data = await response.json();
+            console.log('[fetchUserRagStatus] Response data:', data);
 
             if (response.ok) {
                 dbStatusMessage.textContent = data.message;
                 userHasCustomRag = data.db_exists;
+                console.log('[fetchUserRagStatus] userHasCustomRag set to:', userHasCustomRag);
                 dbStatusMessage.style.color = userHasCustomRag ? 'green' : 'orange';
 
                 if (data.temp_files_exist) {
@@ -452,13 +472,34 @@ document.addEventListener('DOMContentLoaded', () => {
                     dbStatusMessage.textContent += " Pending files to process.";
                 }
 
-                // Revised logic for chatCustomRagButton visibility
-                if (chatCustomRagButton) { // Check if the button element exists in the DOM
-                    if (userHasCustomRag) { // And the user has a custom RAG
+                // Revised logic for custom RAG buttons visibility
+                if (userHasCustomRag) {
+                    if (chatCustomRagButton) {
                         chatCustomRagButton.textContent = `Chat with ${currentUser}'s RAG`;
-                        chatCustomRagButton.classList.remove('hidden'); // Show it
-                    } else { // User does not have a custom RAG (db_exists was false)
-                        chatCustomRagButton.classList.add('hidden'); // Hide it
+                        chatCustomRagButton.classList.remove('hidden');
+                        console.log('[fetchUserRagStatus] chatCustomRagButton made visible.');
+                    } else {
+                        console.log('[fetchUserRagStatus] chatCustomRagButton element NOT found (userHasCustomRag true).');
+                    }
+                    if (chatCustomRagSseButton) {
+                        chatCustomRagSseButton.textContent = `Chat with ${currentUser}'s RAG (Show Steps)`;
+                        chatCustomRagSseButton.classList.remove('hidden');
+                        console.log('[fetchUserRagStatus] chatCustomRagSseButton made visible. Classes:', chatCustomRagSseButton.classList.toString());
+                    } else {
+                        console.log('[fetchUserRagStatus] chatCustomRagSseButton element NOT found (userHasCustomRag true).');
+                    }
+                } else { // userHasCustomRag is false
+                    if (chatCustomRagButton) {
+                        chatCustomRagButton.classList.add('hidden');
+                        console.log('[fetchUserRagStatus] chatCustomRagButton hidden.');
+                    } else {
+                        console.log('[fetchUserRagStatus] chatCustomRagButton element NOT found (userHasCustomRag false).');
+                    }
+                    if (chatCustomRagSseButton) {
+                        chatCustomRagSseButton.classList.add('hidden');
+                        console.log('[fetchUserRagStatus] chatCustomRagSseButton hidden. Classes:', chatCustomRagSseButton.classList.toString());
+                    } else {
+                        console.log('[fetchUserRagStatus] chatCustomRagSseButton element NOT found (userHasCustomRag false).');
                     }
                 }
 
@@ -466,17 +507,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 dbStatusMessage.textContent = `Error checking status: ${data.detail || response.statusText}`;
                 dbStatusMessage.style.color = 'red';
                 userHasCustomRag = false;
-                if (chatCustomRagButton) { // Ensure button is hidden on error
+                console.error('[fetchUserRagStatus] Response not OK. Status:', response.status, 'Detail:', data.detail);
+                if (chatCustomRagButton) {
                     chatCustomRagButton.classList.add('hidden');
+                }
+                if (chatCustomRagSseButton) {
+                    chatCustomRagSseButton.classList.add('hidden');
+                    console.log('[fetchUserRagStatus] chatCustomRagSseButton hidden due to response error.');
                 }
             }
         } catch (error) {
             dbStatusMessage.textContent = 'Error checking RAG status (network/server issue).';
             dbStatusMessage.style.color = 'red';
-            console.error("RAG status error:", error);
+            console.error("[fetchUserRagStatus] Error in try-catch block:", error);
             userHasCustomRag = false;
-            if (chatCustomRagButton) { // Ensure button is hidden on error
+            if (chatCustomRagButton) {
                 chatCustomRagButton.classList.add('hidden');
+            }
+            if (chatCustomRagSseButton) {
+                chatCustomRagSseButton.classList.add('hidden');
+                console.log('[fetchUserRagStatus] chatCustomRagSseButton hidden due to catch error.');
             }
         }
     }
@@ -748,7 +798,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    chatDefaultRagButton.addEventListener('click', () => { // Updated from toggleChatButton
+    chatDefaultRagButton.addEventListener('click', () => {
         uploadSection.classList.remove('active-section');
         uploadSection.classList.add('hidden');
         chatSection.classList.add('active-section');
@@ -764,41 +814,52 @@ document.addEventListener('DOMContentLoaded', () => {
         appendChatMessage('system', 'Interacting with Default RAG (standard mode).');
     });
 
-    chatDefaultRagSseButton.addEventListener('click', () => { // New listener for SSE button
+    chatDefaultRagSseButton.addEventListener('click', () => {
+        chatTargetIsCustom = false;
+        streamWithSteps = true; // Enable SSE streaming with steps
+        currentSessionId = generateSessionId(); // Generate new session ID for new chat
+        clearChat();
+        chatTitle.textContent = 'Chat with Default RAG (Showing Steps)';
         uploadSection.classList.remove('active-section');
         uploadSection.classList.add('hidden');
         chatSection.classList.add('active-section');
         chatSection.classList.remove('hidden');
-
-        chatTitle.textContent = `Chat with Default RAG Agent (Streaming Steps)`;
-        if (chatTargetIsCustom || !streamWithSteps || !currentSessionId) { // Reset session if mode changes
-            currentSessionId = `chat_default_sse_${currentUser}_${Date.now()}`;
-        }
-        chatTargetIsCustom = false;
-        streamWithSteps = true; // Enable SSE streaming with steps
-        clearChat();
-        appendChatMessage('system', 'Interacting with Default RAG (streaming steps). Intermediate agent messages will be shown.');
     });
 
     if (chatCustomRagButton) {
-        chatCustomRagButton.addEventListener('click', () => { // New listener for Custom RAG button
+        chatCustomRagButton.addEventListener('click', () => {
+            if (!userHasCustomRag) {
+                alert("Custom RAG not available. Please upload documents first.");
+                return;
+            }
+            chatTargetIsCustom = true;
+            streamWithSteps = false; // Disable SSE streaming with steps for this button
+            currentSessionId = generateSessionId(); // Generate new session ID for new chat
+            clearChat();
+            chatTitle.textContent = `Chat with ${currentUser}'s RAG`;
             uploadSection.classList.remove('active-section');
             uploadSection.classList.add('hidden');
             chatSection.classList.add('active-section');
             chatSection.classList.remove('hidden');
+        });
+    }
 
-            if (currentUser) {
-                chatTitle.textContent = `Chat with ${currentUser}'s RAG Agent`;
-            } else {
-                chatTitle.textContent = `Chat with Custom RAG Agent`; // Fallback
+    // Event listener for the new custom RAG SSE button
+    if (chatCustomRagSseButton) {
+        chatCustomRagSseButton.addEventListener('click', () => {
+            if (!userHasCustomRag) {
+                alert("Custom RAG not available. Please upload documents first.");
+                return;
             }
-            if (!chatTargetIsCustom || streamWithSteps || !currentSessionId) { // If changing target or no session ID
-                currentSessionId = `chat_${currentUser}_${Date.now()}`;
-            }
-            chatTargetIsCustom = true; // Target custom RAG
-            streamWithSteps = false; // Custom RAG currently uses standard chat
+            chatTargetIsCustom = true;
+            streamWithSteps = true; // Enable SSE streaming with steps
+            currentSessionId = generateSessionId(); // Generate new session ID for new chat
             clearChat();
-            appendChatMessage('system', `Interacting with ${currentUser}'s RAG (standard mode).`);
+            chatTitle.textContent = `Chat with ${currentUser}'s RAG (Showing Steps)`;
+            uploadSection.classList.remove('active-section');
+            uploadSection.classList.add('hidden');
+            chatSection.classList.add('active-section');
+            chatSection.classList.remove('hidden');
         });
     }
 
