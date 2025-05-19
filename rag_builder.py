@@ -8,21 +8,12 @@ except ImportError:
 except KeyError:
     print("pysqlite3 was imported but an issue occurred patching sys.modules.")
 
-
-
-
-
-
-
-
-
-
-
 import os
 import sys
 import argparse
 import logging
-from typing import List, Optional, Set
+from typing import List, Optional
+from collections import defaultdict
 
 import dotenv
 from langchain_core.documents import Document
@@ -59,10 +50,9 @@ def load_environment():
     return api_key
 
 # --- Document Processing ---
-def load_documents_from_folder(folder_path: str, processed_sources: Set[str]) -> List[Document]:
+def load_documents_from_folder(folder_path: str) -> List[Document]:
     """
-    Loads documents from PDF and DOCX files in the specified folder,
-    skipping files whose source path is already in processed_sources.
+    Loads documents from PDF and DOCX files in the specified folder.
     """
     loaded_docs: List[Document] = []
     logger.info(f"Scanning document folder: {folder_path}")
@@ -77,10 +67,6 @@ def load_documents_from_folder(folder_path: str, processed_sources: Set[str]) ->
 
         if not os.path.isfile(file_path):
             logger.debug(f"Skipping non-file item: {filename}")
-            continue
-
-        if abs_file_path in processed_sources:
-            logger.info(f"Skipping already processed file: {filename}")
             continue
 
         loader: Optional[PyPDFLoader | Docx2txtLoader] = None
@@ -139,6 +125,7 @@ def process_documents_and_build_db(
 ):
     """
     Main function to load, process documents, and build/update the ChromaDB vector store.
+    Implements metadata-driven deletion: if a file with the same name is re-uploaded, old chunks are removed before new ones are added.
     """
     load_environment()
 
@@ -156,38 +143,41 @@ def process_documents_and_build_db(
         embedding_function=embeddings,
     )
 
-    # Get sources already in the DB to avoid re-processing
-    processed_sources: Set[str] = set()
-    try:
-        existing_docs = vector_db.get(include=["metadatas"])
-        if existing_docs and existing_docs.get("metadatas"):
-            for metadata in existing_docs["metadatas"]:
-                if metadata and "source" in metadata:
-                    processed_sources.add(metadata["source"])
-        logger.info(f"Found {len(processed_sources)} sources already processed in the database.")
-    except Exception as e: # Broad exception if collection doesn't exist or other DB issues
-        logger.warning(f"Could not retrieve existing sources from DB (collection might be new or empty): {e}")
-
-
-    new_documents = load_documents_from_folder(docs_folder, processed_sources)
+    new_documents = load_documents_from_folder(docs_folder)
 
     if not new_documents:
         logger.info("No new documents found to process or load from the folder.")
         return
 
-    chunks = split_documents_into_chunks(new_documents, chunk_size, chunk_overlap)
+    # --- Metadata-driven deletion and chunking ---
+    # Group documents by filename
+    docs_by_filename = defaultdict(list)
+    for doc in new_documents:
+        # Use just the filename (not full path) for matching
+        file_name = os.path.basename(doc.metadata.get("source", ""))
+        doc.metadata["source_file_name"] = file_name
+        docs_by_filename[file_name].append(doc)
 
-    if chunks:
-        logger.info(f"Adding {len(chunks)} new chunks to the vector store...")
+    for file_name, docs in docs_by_filename.items():
+        # Delete all existing chunks for this file_name
+        logger.info(f"[RAG-REPLACE] Deleting existing chunks for file: {file_name} in collection '{collection_name}'...")
         try:
-            # Langchain's default Document objects from loaders get UUIDs, so re-adding the
-            # same content (if not skipped by source check) will create new entries.
-            # If specific ID management is needed for updates, that's a more complex step.
-            vector_db.add_documents(chunks)
-            logger.info("Successfully added new chunks to the database.")
+            del_result = vector_db.delete(where={"source_file_name": file_name})
+            logger.info(f"[RAG-REPLACE] Delete result for '{file_name}': {del_result}")
         except Exception as e:
-            logger.error(f"Failed to add chunks to ChromaDB: {e}", exc_info=True)
-            return
+            logger.error(f"[RAG-REPLACE] Error deleting chunks for '{file_name}': {e}", exc_info=True)
+        # Split and add new chunks
+        chunks = split_documents_into_chunks(docs, chunk_size, chunk_overlap)
+        if chunks:
+            # Ensure all chunks have the correct source_file_name metadata
+            for chunk in chunks:
+                chunk.metadata["source_file_name"] = file_name
+            logger.info(f"[RAG-REPLACE] Adding {len(chunks)} new chunks for file: {file_name} to the vector store...")
+            try:
+                vector_db.add_documents(chunks)
+                logger.info(f"[RAG-REPLACE] Successfully added {len(chunks)} chunks for '{file_name}' to the database.")
+            except Exception as e:
+                logger.error(f"[RAG-REPLACE] Failed to add chunks for '{file_name}' to ChromaDB: {e}", exc_info=True)
 
 # --- Command-Line Interface ---
 def main():
