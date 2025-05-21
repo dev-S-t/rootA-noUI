@@ -43,7 +43,7 @@ async def call_agent_async(query: str, runner, user_id, session_id):
     print(f"<<< Agent Response: {final_response_text}")
 
     # Add session to memory after the interaction
-    completed_session = session_service.get_session(app_name=APP_NAME, user_id=user_id, session_id=session_id)
+    completed_session = await session_service.get_session(app_name=APP_NAME, user_id=user_id, session_id=session_id)
     if completed_session:
         memory_service.add_session_to_memory(completed_session)
         print(f"--- Session {session_id} added to memory ---")
@@ -56,7 +56,7 @@ async def call_agent_async(query: str, runner, user_id, session_id):
 if __name__ == "__main__":
     async def main():
         # Ensure session exists
-        session_service.create_session(
+        await session_service.create_session(
             app_name=APP_NAME,
             user_id=USER_ID,
             session_id=SESSION_ID

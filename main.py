@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 import json
 from typing import List, Optional
 import pathlib
+import uuid # Added import
 from pydantic import BaseModel
 
 from multi_tool_agent.agent import AGENT, SESSION_SERVICE, MEMORY_SERVICE, APP_NAME, get_vector_db_path, root_agent as agent_root_agent, DEFAULT_ROOT_AGENT_INSTRUCTION
@@ -93,8 +94,8 @@ async def signup_user(payload: SignupPayload):
         content={"message": f"User '{payload.username}' created successfully. You can now login."}
     )
 
-def ensure_session(user_id: str, session_id: str):
-    SESSION_SERVICE.create_session(
+async def ensure_session(user_id: str, session_id: str):
+    await SESSION_SERVICE.create_session(
         app_name=APP_NAME,
         user_id=user_id,
         session_id=session_id
@@ -310,7 +311,7 @@ async def run_endpoint(request: Request, user_rag_name: Optional[str] = None):
     prompt = data.get("prompt")
     if not prompt:
         return JSONResponse({"error": "Missing prompt"}, status_code=400)
-    ensure_session(user_id, session_id)
+    await ensure_session(user_id, session_id)
     
     response_text = await run_agent_with_rag_context(user_id, session_id, prompt, user_rag_name)
     return JSONResponse({"response": response_text})
@@ -320,11 +321,29 @@ async def run_endpoint(request: Request, user_rag_name: Optional[str] = None):
 async def run_sse_endpoint(request: Request, user_rag_name: Optional[str] = None):
     data = await request.json()
     user_id = data.get("user_id", "user_1")
-    session_id = data.get("session_id", "session_001")
     prompt = data.get("prompt")
     if not prompt:
         return JSONResponse({"error": "Missing prompt"}, status_code=400)
-    ensure_session(user_id, session_id)
+
+    final_session_id = None
+    requested_session_id = data.get("session_id")
+
+    if requested_session_id:
+        session = await SESSION_SERVICE.get_session(session_id=requested_session_id)
+        if session:
+            final_session_id = requested_session_id
+            # logger.info(f"Using existing session ID from request: {final_session_id}")
+        else:
+            # logger.warning(f"Session ID {requested_session_id} from request not found. Generating a new one.")
+            pass
+    
+    if not final_session_id:
+        new_uuid = str(uuid.uuid4())
+        await SESSION_SERVICE.create_session(user_id=user_id, session_id=new_uuid, app_name=APP_NAME)
+        final_session_id = new_uuid
+        # logger.info(f"Generated and created new session ID: {final_session_id}")
+
+    session_id = final_session_id # Ensure event_generator captures this
 
     async def event_generator():
         original_active_rag_name = agent_module.ACTIVE_RAG_NAME
@@ -378,7 +397,7 @@ async def run_sse_endpoint(request: Request, user_rag_name: Optional[str] = None
 async def get_session_id(user_id: str, session_id_header: Optional[str] = Header(None, alias="X-Session-Id")) -> str:
     if session_id_header:
         # Check if the session actually exists and is valid in the ADK's session service
-        session = SESSION_SERVICE.get_session(session_id=session_id_header)
+        session = await SESSION_SERVICE.get_session(session_id=session_id_header)
         if session:
             logger.info(f"Using existing and valid session ID from header for user {user_id}: {session_id_header}")
             return session_id_header
@@ -393,9 +412,9 @@ async def get_session_id(user_id: str, session_id_header: Optional[str] = Header
     try:
         # Explicitly create the session here.
         # This ensures that if a new ID is passed to run_async, the session object already exists.
-        created_session = SESSION_SERVICE.create_session(session_id=new_session_id, user_id=user_id)
+        created_session = await SESSION_SERVICE.create_session(session_id=new_session_id, user_id=user_id)
         # Verify creation, primarily for logging and sanity checking.
-        if created_session and SESSION_SERVICE.get_session(new_session_id):
+        if created_session and await SESSION_SERVICE.get_session(new_session_id):
              logger.info(f"Successfully created and verified new session {new_session_id} for user {user_id} in SessionService.")
         else:
             # This would indicate a deeper issue with SessionService.create_session or get_session.
