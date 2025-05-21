@@ -16,6 +16,7 @@ from typing import List, Optional
 from collections import defaultdict
 
 import dotenv
+import chromadb # Added import
 from langchain_core.documents import Document
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -136,18 +137,35 @@ def process_documents_and_build_db(
         logger.critical(f"Failed to initialize embedding model: {e}", exc_info=True)
         sys.exit("Exiting due to embedding model initialization failure.")
 
-    logger.info(f"Initializing/Loading ChromaDB from: {db_path} with collection: {collection_name}")
-    vector_db = Chroma(
-        collection_name=collection_name,
-        persist_directory=db_path,
-        embedding_function=embeddings,
-    )
+    logger.info(f"Initializing ChromaDB client for path: {db_path}")
+    vector_db: Chroma
+    try:
+        # Create a persistent client
+        client = chromadb.PersistentClient(path=db_path)
+        
+        logger.info(f"Initializing Langchain Chroma wrapper for collection: {collection_name} using the client.")
+        # The Langchain Chroma wrapper will use this client to interact with the specified collection.
+        # It will create the collection if it doesn't exist, using the provided embedding function.
+        vector_db = Chroma(
+            client=client,
+            collection_name=collection_name,
+            embedding_function=embeddings,
+        )
+        # Log count using the Langchain Chroma wrapper's internal collection object
+        initial_count = vector_db._collection.count()
+        logger.info(f"ChromaDB connection established. Collection '{collection_name}' initial count: {initial_count}")
+
+    except Exception as e:
+        logger.critical(f"Failed to initialize ChromaDB client or Langchain wrapper: {e}", exc_info=True)
+        sys.exit("Exiting due to ChromaDB initialization failure.")
 
     new_documents = load_documents_from_folder(docs_folder)
 
     if not new_documents:
         logger.info("No new documents found to process or load from the folder.")
         return
+
+    any_replacement_occurred = False # Flag to track if any document replacement happened
 
     # --- Metadata-driven deletion and chunking ---
     # Group documents by filename
@@ -161,23 +179,77 @@ def process_documents_and_build_db(
     for file_name, docs in docs_by_filename.items():
         # Delete all existing chunks for this file_name
         logger.info(f"[RAG-REPLACE] Deleting existing chunks for file: {file_name} in collection '{collection_name}'...")
+        count_before_delete = vector_db._collection.count()
+        logger.info(f"[RAG-REPLACE] Count before delete for '{file_name}': {count_before_delete}")
         try:
-            del_result = vector_db.delete(where={"source_file_name": file_name})
-            logger.info(f"[RAG-REPLACE] Delete result for '{file_name}': {del_result}")
+            # It's important to ensure that the client associated with vector_db is the one performing operations.
+            # The Langchain Chroma wrapper's delete method should handle this.
+            # We are deleting based on metadata that should be unique to the file's chunks.
+            ids_to_delete = []
+            # To be absolutely sure, one could fetch IDs based on the where clause first, then delete by ID.
+            # However, delete with a where clause should work.
+            # Let's get the documents first to see what Chroma thinks matches, then try to delete their IDs.
+            # This is for more robust deletion.
+            
+            # Get existing documents matching the source_file_name
+            existing_docs_for_file = vector_db._collection.get(
+                where={"source_file_name": file_name},
+                include=["metadatas"] # Corrected: removed backslashes
+            )
+            ids_to_delete = existing_docs_for_file['ids']
+
+            if ids_to_delete:
+                logger.info(f"[RAG-REPLACE] Found {len(ids_to_delete)} chunk IDs to delete for file: {file_name}. IDs: {ids_to_delete}")
+                vector_db._collection.delete(ids=ids_to_delete) # Using direct collection delete by IDs
+                logger.info(f"[RAG-REPLACE] Successfully submitted deletion for {len(ids_to_delete)} IDs for '{file_name}'.")
+                any_replacement_occurred = True # A replacement occurred for this file
+            else:
+                logger.info(f"[RAG-REPLACE] No existing chunk IDs found to delete for file: {file_name} based on metadata query.")
+
+            # del_result = vector_db.delete(where={\"source_file_name\": file_name}) # Old way
+            # logger.info(f\"[RAG-REPLACE] Delete result for \'{file_name}\': {del_result}\")
+
+
         except Exception as e:
-            logger.error(f"[RAG-REPLACE] Error deleting chunks for '{file_name}': {e}", exc_info=True)
+            logger.error(f"[RAG-REPLACE] Error during deletion process for '{file_name}': {e}", exc_info=True)
+        
+        count_after_delete = vector_db._collection.count()
+        logger.info(f"[RAG-REPLACE] Count after delete for '{file_name}': {count_after_delete}")
+
         # Split and add new chunks
         chunks = split_documents_into_chunks(docs, chunk_size, chunk_overlap)
         if chunks:
-            # Ensure all chunks have the correct source_file_name metadata
-            for chunk in chunks:
+            # Ensure all chunks have the correct source_file_name metadata and valid page_content
+            for i, chunk in enumerate(chunks):
                 chunk.metadata["source_file_name"] = file_name
+                if not isinstance(chunk.page_content, str):
+                    logger.warning(f"[RAG-REPLACE] Chunk {i} for file '{file_name}' has non-string page_content (type: {type(chunk.page_content)}). Converting to empty string. Content: '{chunk.page_content!r}'")
+                    chunk.page_content = str(chunk.page_content) if chunk.page_content is not None else ""
+                # Log a snippet of page_content and its type
+                # logger.debug(f"[RAG-REPLACE] Chunk {i} for \'{file_name}\' to be added. Metadata: {chunk.metadata}, Page Content Type: {type(chunk.page_content)}, Snippet: \'{chunk.page_content[:100]}...\'")
+
+
             logger.info(f"[RAG-REPLACE] Adding {len(chunks)} new chunks for file: {file_name} to the vector store...")
             try:
-                vector_db.add_documents(chunks)
-                logger.info(f"[RAG-REPLACE] Successfully added {len(chunks)} chunks for '{file_name}' to the database.")
+                vector_db.add_documents(chunks) # Langchain wrapper's add_documents
+                logger.info(f"[RAG-REPLACE] Successfully submitted add_documents for {len(chunks)} chunks for '{file_name}'.")
             except Exception as e:
-                logger.error(f"[RAG-REPLACE] Failed to add chunks for '{file_name}' to ChromaDB: {e}", exc_info=True)
+                logger.error(f"[RAG-REPLACE] Failed to add chunks for '{file_name}' to ChromaDB: {e}", exc_info=True) # Corrected: f-string properly terminated
+            
+            count_after_add = vector_db._collection.count()
+            logger.info(f"[RAG-REPLACE] Count after add for '{file_name}': {count_after_add}")
+
+    if any_replacement_occurred:
+        try:
+            main_py_path = os.path.join(os.path.dirname(__file__), 'main.py')
+            if os.path.exists(main_py_path):
+                os.utime(main_py_path, None) # Touch main.py to trigger reload
+                logger.info("[RAG-BUILDER] Document replacement occurred. Touched main.py to trigger server reload.")
+            else:
+                logger.warning(f"[RAG-BUILDER] main.py not found at {main_py_path}. Cannot trigger reload.")
+        except Exception as e:
+            logger.error(f"[RAG-BUILDER] Error touching main.py to trigger reload: {e}", exc_info=True)
+
 
 # --- Command-Line Interface ---
 def main():

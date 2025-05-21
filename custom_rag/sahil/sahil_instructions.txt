@@ -1,1 +1,0 @@
-you must use rag to answer user , and whenever you do , mention what you searched and what results did you get

@@ -5,16 +5,22 @@ from google.adk.agents import Agent
 import logging
 import dotenv
 import google.generativeai as genai
+import chromadb # Added import
 from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from typing import Dict, Any, Optional
 import requests
 from bs4 import BeautifulSoup
 from google.adk.tools import load_memory  # Added import
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 # --- ADK Session and Memory Integration ---
 from .session_memory import session_service, memory_service
 from google.adk.runners import Runner
+
+# Define a default value for K for RAG retrievals
+DEFAULT_K_RAG = 3
 
 # Set up logging
 logging.basicConfig(
@@ -117,24 +123,41 @@ def get_vector_db() -> Optional[Chroma]:
 
     try:
         # Initialize the embedding model
+        # Ensure this matches the embedding model used in rag_builder.py
         embedding_function = GoogleGenerativeAIEmbeddings(
-            model="models/embedding-001",
+            model="models/embedding-001", # Consistent with rag_builder.py (assuming it uses this or a compatible one)
             google_api_key=api_key,
         )
         
-        # Check if vector database exists
-        if os.path.exists(actual_db_path) and os.path.isdir(actual_db_path):  # Check if it's a directory
-            logger.info(f"Loading vector database from {actual_db_path} with collection '{collection_name_to_load}' (active RAG: {ACTIVE_RAG_NAME})")
-            return Chroma(
-                persist_directory=actual_db_path,
-                embedding_function=embedding_function,
-                collection_name=collection_name_to_load # Specify the collection name
-            )
-        else:
-            logger.warning(f"Vector database path not found at {actual_db_path} for active RAG: {ACTIVE_RAG_NAME}")
+        # Check if vector database path exists and is a directory
+        if not (os.path.exists(actual_db_path) and os.path.isdir(actual_db_path)):
+            logger.warning(f"Vector database path not found or not a directory at {actual_db_path} for active RAG: {ACTIVE_RAG_NAME}")
             return None
+
+        logger.info(f"Attempting to connect to ChromaDB at {actual_db_path} for collection '{collection_name_to_load}' (active RAG: {ACTIVE_RAG_NAME})")
+        
+        # Create a persistent client instance
+        client = chromadb.PersistentClient(path=actual_db_path)
+        
+        # Use the client to get the Langchain Chroma wrapper
+        # This ensures we are connecting to the same underlying database and collection
+        # The collection should already exist if rag_builder.py has run.
+        # If it doesn't, get_or_create_collection could be used, but for RAG, it's expected to exist.
+        vector_db_instance = Chroma(
+            client=client,
+            collection_name=collection_name_to_load,
+            embedding_function=embedding_function,
+        )
+        
+        # Log the collection count from the agent's perspective after connecting
+        # This uses the Langchain Chroma wrapper's internal collection object
+        current_collection_count = vector_db_instance._collection.count()
+        logger.info(f"Successfully connected to ChromaDB. Collection '{collection_name_to_load}' count: {current_collection_count}")
+        
+        return vector_db_instance
+
     except Exception as e:
-        logger.error(f"Error initializing vector database for RAG {ACTIVE_RAG_NAME} with collection {collection_name_to_load}: {e}")
+        logger.error(f"Error initializing vector database for RAG {ACTIVE_RAG_NAME} with collection {collection_name_to_load}: {e}", exc_info=True)
         return None
 
 
@@ -145,7 +168,7 @@ def rag_answer(question: str) -> dict:
     (determined by ACTIVE_RAG_NAME) and uses it to generate a more informed answer.
 
     Args:
-        question (str): The user's question.
+        question (str): The user\\'s question.
 
     Returns:
         dict: status and the answer or error message.
@@ -155,7 +178,7 @@ def rag_answer(question: str) -> dict:
     
     if not vector_db:
         # Fall back to mock knowledge base if vector DB is not available
-        logger.warning(f"Vector database for '{ACTIVE_RAG_NAME}' not available, using fallback knowledge base")
+        logger.warning(f"Vector database for \\'{ACTIVE_RAG_NAME}\\' not available, using fallback knowledge base")
         knowledge_base = {
             "google adk": "Google Agent Development Kit (ADK) is a framework for building AI agents. It supports tools, state management, and sequential agents.",
             "rag": "Retrieval-Augmented Generation (RAG) is a technique that enhances LLM outputs by retrieving relevant information from external sources before generating responses.",
@@ -178,13 +201,84 @@ def rag_answer(question: str) -> dict:
         else:
             return {
                 "status": "partial_success",
-                "answer": "I don't have specific information about that in my knowledge base (fallback mode), but I'll try to answer based on my general knowledge.",
+                "answer": "I don\\'t have specific information about that in my knowledge base (fallback mode), but I\\'ll try to answer based on my general knowledge.",
             }
     
     try:
+        # +++ BEGIN ADDED PRE-QUERY DEBUGGING +++
+        logger.info(f"Attempting direct ChromaDB collection query for: \\'{question}\\'")
+        try:
+            # Directly query the underlying chromadb collection
+            # We need to generate an embedding for the query string to use with _collection.query
+            # query_embedding = vector_db.embedding_function.embed_query(question) # Old incorrect way
+            if not hasattr(vector_db, '_embedding_function') or vector_db._embedding_function is None:
+                logger.error("[RAG-AGENT] Vector DB does not have a valid _embedding_function. Skipping direct query.")
+                query_results = {"documents": None, "metadatas": None, "distances": None, "ids": None} # Default empty response
+            else:
+                query_embedding = vector_db._embedding_function.embed_query(question)
+                
+                # Use DEFAULT_K_RAG directly to avoid NameError if search_kwargs is not defined
+                # Assumes DEFAULT_K_RAG is defined in this file's scope
+                num_results_for_direct_query = DEFAULT_K_RAG 
+                
+                logger.info(f"[RAG-AGENT] Querying ChromaDB directly for: '{question}' with k={num_results_for_direct_query}")
+                query_results = vector_db._collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=num_results_for_direct_query,
+                    where=None, # Use None for filter to avoid NameError if search_kwargs is not defined
+                    include=['documents', 'metadatas', 'distances']
+                )
+            logger.info(f"[RAG-AGENT] Direct ChromaDB query_results: {query_results}")
+
+            # Fallback or primary method: Langchain's similarity_search
+            logger.info(f"Performing Langchain similarity_search for question: {question} in RAG: {ACTIVE_RAG_NAME}")
+            documents = vector_db.similarity_search(question, k=3)
+            
+            # +++ BEGIN ADDED DEBUGGING BLOCK (from previous step) +++
+            if documents:
+                logger.info(f"Raw documents retrieved by similarity_search (count: {len(documents)}):")
+                for i, doc in enumerate(documents):
+                    logger.info(f"Doc {i} page_content: {doc.page_content!r}") # Use !r for raw representation
+                    logger.info(f"Doc {i} metadata: {doc.metadata}")
+                    if not isinstance(doc.page_content, str):
+                        logger.error(f"Doc {i} has NON-STRING page_content! Type: {type(doc.page_content)}")
+            # +++ END ADDED DEBUGGING BLOCK +++
+            
+            if not documents:
+                logger.warning(f"No relevant documents found in vector database for RAG: {ACTIVE_RAG_NAME} for question: {question}")
+                return {
+                    "status": "no_matches_found",  # Changed from partial_success
+                    "answer": f"I couldn't find specific information about '{question}' in the knowledge base: '{ACTIVE_RAG_NAME}'. Please try a different query or check if the RAG is populated correctly.",
+                }
+            
+            # Format the retrieved information
+            retrieved_context = "\n\n".join([f"From {doc.metadata.get('source', 'unknown source')}: {doc.page_content}" for doc in documents])
+            
+            logger.info(f"Found {len(documents)} relevant documents")
+            
+            # Return the retrieved information
+            return {
+                "status": "success",
+                "answer": f"Based on the information I retrieved from my knowledge base:\n\n{retrieved_context}\n\nI hope this information helps answer your question about '{question}'.",
+            }
+            
+        except Exception as e_direct_query:
+            logger.error(f"Error during direct ChromaDB collection query: {e_direct_query}", exc_info=True)
+        # +++ END ADDED PRE-QUERY DEBUGGING +++
+
         # Perform a similarity search on the question
-        logger.info(f"Performing similarity search for question: {question} in RAG: {ACTIVE_RAG_NAME}")
+        logger.info(f"Performing Langchain similarity_search for question: {question} in RAG: {ACTIVE_RAG_NAME}")
         documents = vector_db.similarity_search(question, k=3)
+        
+        # +++ BEGIN ADDED DEBUGGING BLOCK (from previous step) +++
+        if documents:
+            logger.info(f"Raw documents retrieved by similarity_search (count: {len(documents)}):")
+            for i, doc in enumerate(documents):
+                logger.info(f"Doc {i} page_content: {doc.page_content!r}") # Use !r for raw representation
+                logger.info(f"Doc {i} metadata: {doc.metadata}")
+                if not isinstance(doc.page_content, str):
+                    logger.error(f"Doc {i} has NON-STRING page_content! Type: {type(doc.page_content)}")
+        # +++ END ADDED DEBUGGING BLOCK +++
         
         if not documents:
             logger.warning(f"No relevant documents found in vector database for RAG: {ACTIVE_RAG_NAME} for question: {question}")
