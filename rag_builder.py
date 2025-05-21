@@ -23,8 +23,9 @@ import sys
 import argparse
 import logging
 from typing import List, Optional, Set
-import datetime # Added import
-import shutil # Added import
+import datetime
+import shutil
+# import re # Not strictly needed with the revised metadata strategy
 
 import dotenv
 from langchain_core.documents import Document
@@ -133,7 +134,7 @@ def split_documents_into_chunks(
 # --- Main Application Logic ---
 def process_documents_and_build_db(
     docs_folder: str,
-    db_path: str, # This will now be custom_rag/db_name
+    db_path: str,
     collection_name: str,
     embedding_model_name: str,
     chunk_size: int,
@@ -141,6 +142,14 @@ def process_documents_and_build_db(
 ):
     """
     Main function to load, process documents, and build/update the ChromaDB vector store.
+    When a document is processed:
+    1. Existing chunks in DB for the same original_filename with an older version_timestamp are deleted.
+    2. New chunks are generated from the uploaded document.
+    3. New chunks are assigned metadata:
+        - source: unique ID like 'filename_timestamp_chunkIndex'
+        - original_filename: base filename
+        - version_timestamp: current processing timestamp
+    4. These new versioned chunks are added to the database.
     """
     load_environment()
 
@@ -155,10 +164,10 @@ def process_documents_and_build_db(
     vector_db = Chroma(
         collection_name=collection_name,
         embedding_function=embeddings,
-        client_settings=chromadb.config.Settings( # Explicit client settings
+        client_settings=chromadb.config.Settings(
             is_persistent=True,
             persist_directory=db_path,
-            anonymized_telemetry=False # Consistent with logs
+            anonymized_telemetry=False
         )
     )
 
@@ -167,85 +176,115 @@ def process_documents_and_build_db(
         logger.error(f"Specified document folder does not exist: {docs_folder}")
         return
 
-    all_new_versioned_chunks_added_count = 0
+    total_chunks_added_this_run = 0
     processed_files_count = 0
 
-    for filename in os.listdir(docs_folder): # docs_folder is like ".../s_temp_uploads"
-        original_file_path_in_temp_uploads = os.path.join(docs_folder, filename)
-        original_source_id = os.path.abspath(original_file_path_in_temp_uploads)
-
-        if not os.path.isfile(original_file_path_in_temp_uploads):
-            logger.debug(f"Skipping non-file item: {filename}")
+    for doc_filename_in_temp_folder in os.listdir(docs_folder):
+        original_file_full_path = os.path.join(docs_folder, doc_filename_in_temp_folder)
+        
+        if not os.path.isfile(original_file_full_path):
+            logger.debug(f"Skipping non-file item: {doc_filename_in_temp_folder}")
             continue
 
-        logger.info(f"Processing document: {filename} (original source ID: {original_source_id})")
+        base_filename = doc_filename_in_temp_folder # This is the original name like "mydoc.pdf"
+        current_processing_timestamp_str = datetime.datetime.now().strftime('%Y%m%d%H%M%S%f')
 
-        # Create temp dir for single file processing
-        temp_single_file_dir = os.path.join(os.path.dirname(docs_folder), "_temp_single_file_processing")
-        os.makedirs(temp_single_file_dir, exist_ok=True)
-        path_to_file_in_temp_single_dir = os.path.join(temp_single_file_dir, filename)
-        shutil.copy2(original_file_path_in_temp_uploads, path_to_file_in_temp_single_dir)
+        logger.info(f"Processing document: {base_filename} with timestamp {current_processing_timestamp_str}")
 
-        loaded_docs_from_temp = load_documents_from_folder(temp_single_file_dir)
-        shutil.rmtree(temp_single_file_dir)
+        # --- Deletion Phase for older versions of this base_filename ---
+        ids_to_delete = []
+        try:
+            logger.debug(f"Checking for older versions of '{base_filename}' to delete.")
+            # Get all documents that share the same base_filename
+            # Their 'source' will be different due to timestamps, so filter on 'original_filename'
+            filter_for_filename = {"original_filename": base_filename}
+            all_versions_data = vector_db.get(where=filter_for_filename, include=['metadatas'])
+            
+            existing_doc_ids = all_versions_data.get('ids', [])
+            existing_metadatas = all_versions_data.get('metadatas', [])
+
+            for i, meta in enumerate(existing_metadatas):
+                if meta and 'version_timestamp' in meta:
+                    stored_version_timestamp = meta['version_timestamp']
+                    # Compare timestamps lexicographically (string comparison works for this format)
+                    if stored_version_timestamp < current_processing_timestamp_str:
+                        ids_to_delete.append(existing_doc_ids[i])
+                        logger.debug(f"Marking for deletion (older version): ID {existing_doc_ids[i]}, Source: {meta.get('source', 'N/A')}, Stored Timestamp: {stored_version_timestamp}")
+                # else: logger.debug(f"Metadata for ID {existing_doc_ids[i]} missing 'version_timestamp' or is None.")
+            
+            if ids_to_delete:
+                unique_ids_to_delete = list(set(ids_to_delete)) # Ensure uniqueness before deleting
+                logger.info(f"Found {len(unique_ids_to_delete)} older chunk(s) of '{base_filename}'. Deleting them.")
+                vector_db.delete(ids=unique_ids_to_delete)
+                logger.info(f"Successfully deleted {len(unique_ids_to_delete)} older chunks for '{base_filename}'.")
+            else:
+                logger.info(f"No older versions of chunks found for '{base_filename}' to delete.")
+
+        except Exception as e:
+            logger.error(f"Error during deletion phase for {base_filename}: {e}", exc_info=True)
+            # Potentially skip this file or log and continue to add new version
+
+        # --- Loading and Processing New Document ---
+        # Create a temporary directory for loading this single file to avoid issues with multi-file loaders
+        temp_single_file_processing_dir = os.path.join(os.path.dirname(docs_folder), "_temp_single_file_processing")
+        os.makedirs(temp_single_file_processing_dir, exist_ok=True)
+        path_to_file_in_temp_single_dir = os.path.join(temp_single_file_processing_dir, base_filename)
+        
+        try:
+            shutil.copy2(original_file_full_path, path_to_file_in_temp_single_dir)
+            # loaded_docs_from_temp will have doc.metadata["source"] = absolute path of the copied file
+            loaded_docs_from_temp = load_documents_from_folder(temp_single_file_processing_dir)
+        finally:
+            shutil.rmtree(temp_single_file_processing_dir)
+
 
         if not loaded_docs_from_temp:
-            logger.warning(f"Could not load document {filename}. Skipping.")
+            logger.warning(f"Could not load document {base_filename}. Skipping addition for this version.")
             continue
         
-        # CRITICAL STEP: Correct the source metadata on the loaded documents BEFORE chunking
-        for doc_obj in loaded_docs_from_temp:
-            doc_obj.metadata["source"] = original_source_id
-
+        # The 'source' in loaded_docs_from_temp is the path within temp_single_file_processing_dir.
+        # This is fine as we are about to create new metadata.
         new_chunks_from_upload = split_documents_into_chunks(loaded_docs_from_temp, chunk_size, chunk_overlap)
 
         if not new_chunks_from_upload:
-            logger.info(f"No chunks generated for {filename}. Skipping.")
+            logger.info(f"No chunks generated for {base_filename}. Skipping addition for this version.")
             continue
 
-        # Fetch existing page_contents for the ORIGINAL source ID
-        existing_page_contents_for_original_source = set()
-        try:
-            logger.debug(f"Fetching existing chunk documents for original source: {original_source_id}")
-            existing_data = vector_db.get(where={"source": original_source_id}, include=["documents"])
-            if existing_data and existing_data.get("documents"):
-                for content in existing_data["documents"]:
-                    if content is not None:
-                        existing_page_contents_for_original_source.add(content)
-                logger.info(f"Found {len(existing_page_contents_for_original_source)} existing unique page_contents for original source: {original_source_id}")
-            else:
-                logger.info(f"No existing chunk documents found for original source: {original_source_id}")
-        except Exception as e:
-            logger.error(f"Error fetching existing content for {original_source_id}: {e}", exc_info=True)
-            continue
-
-        chunks_to_add_with_versioned_ids = []
-        timestamp_str = datetime.datetime.now().strftime('%Y%m%d%H%M%S%f')
-        
+        # --- Preparing and Adding New Chunks to DB ---
+        chunks_to_add_this_version = []
         for i, fresh_chunk in enumerate(new_chunks_from_upload):
-            if fresh_chunk.page_content not in existing_page_contents_for_original_source:
-                versioned_source_id = f"{original_source_id}#v{timestamp_str}_{i}"
-                logger.debug(f"New/modified content found. Assigning versioned_source_id: {versioned_source_id}")
-                
-                versioned_chunk_doc = Document(
-                    page_content=fresh_chunk.page_content,
-                    metadata={**fresh_chunk.metadata, "source": versioned_source_id} 
-                )
-                chunks_to_add_with_versioned_ids.append(versioned_chunk_doc)
-            # else: logger.debug(f"Chunk content for {original_source_id} already exists. Skipping.")
+            # fresh_chunk.metadata currently contains {'source': /path/in/_temp_single_file_processing/..., 'start_index': ...}
+            
+            chunk_unique_source_id = f"{base_filename}_{current_processing_timestamp_str}_{i}"
+            
+            final_metadata_for_chunk = {
+                "source": chunk_unique_source_id,
+                "original_filename": base_filename,
+                "version_timestamp": current_processing_timestamp_str
+            }
+            if 'start_index' in fresh_chunk.metadata: # Preserve start_index
+                final_metadata_for_chunk['start_index'] = fresh_chunk.metadata['start_index']
+            # Potentially copy other relevant metadata from fresh_chunk.metadata if needed
 
-        if chunks_to_add_with_versioned_ids:
+            chunk_doc_to_add = Document(
+                page_content=fresh_chunk.page_content,
+                metadata=final_metadata_for_chunk
+            )
+            chunks_to_add_this_version.append(chunk_doc_to_add)
+
+        if chunks_to_add_this_version:
             try:
-                vector_db.add_documents(chunks_to_add_with_versioned_ids)
-                logger.info(f"Successfully added {len(chunks_to_add_with_versioned_ids)} new/modified chunks for original source {original_source_id} with versioned IDs.")
-                all_new_versioned_chunks_added_count += len(chunks_to_add_with_versioned_ids)
+                vector_db.add_documents(chunks_to_add_this_version)
+                logger.info(f"Successfully added {len(chunks_to_add_this_version)} new chunks for '{base_filename}' (version: {current_processing_timestamp_str}).")
+                total_chunks_added_this_run += len(chunks_to_add_this_version)
             except Exception as e:
-                logger.error(f"Failed to add versioned chunks for {original_source_id} to ChromaDB: {e}", exc_info=True)
-        else:
-            logger.info(f"No new or modified content found for original source {original_source_id} to add.")
-        processed_files_count +=1
+                logger.error(f"Failed to add new chunks for {base_filename} (version: {current_processing_timestamp_str}) to ChromaDB: {e}", exc_info=True)
+        else: 
+            logger.info(f"No chunks were prepared to be added for {base_filename} (version: {current_processing_timestamp_str}).")
+        
+        processed_files_count += 1
 
-    logger.info(f"Finished processing all documents. Added a total of {all_new_versioned_chunks_added_count} new/modified versioned chunks from {processed_files_count} files.")
+    logger.info(f"Finished processing all documents. Added a total of {total_chunks_added_this_run} new versioned chunks from {processed_files_count} files processed in this run.")
 
 # --- Command-Line Interface ---
 def main():
