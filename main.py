@@ -93,8 +93,8 @@ async def signup_user(payload: SignupPayload):
         content={"message": f"User '{payload.username}' created successfully. You can now login."}
     )
 
-def ensure_session(user_id: str, session_id: str):
-    SESSION_SERVICE.create_session(
+async def ensure_session(user_id: str, session_id: str):
+    await SESSION_SERVICE.create_session(
         app_name=APP_NAME,
         user_id=user_id,
         session_id=session_id
@@ -310,7 +310,7 @@ async def run_endpoint(request: Request, user_rag_name: Optional[str] = None):
     prompt = data.get("prompt")
     if not prompt:
         return JSONResponse({"error": "Missing prompt"}, status_code=400)
-    ensure_session(user_id, session_id)
+    await ensure_session(user_id, session_id)
     
     response_text = await run_agent_with_rag_context(user_id, session_id, prompt, user_rag_name)
     return JSONResponse({"response": response_text})
@@ -324,7 +324,7 @@ async def run_sse_endpoint(request: Request, user_rag_name: Optional[str] = None
     prompt = data.get("prompt")
     if not prompt:
         return JSONResponse({"error": "Missing prompt"}, status_code=400)
-    ensure_session(user_id, session_id)
+    await ensure_session(user_id, session_id)
 
     async def event_generator():
         original_active_rag_name = agent_module.ACTIVE_RAG_NAME
