@@ -17,6 +17,7 @@ from collections import defaultdict
 
 import dotenv
 import chromadb # Added import
+import requests # Added for Render API
 from langchain_core.documents import Document
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -240,16 +241,36 @@ def process_documents_and_build_db(
             logger.info(f"[RAG-REPLACE] Count after add for '{file_name}': {count_after_add}")
 
     if any_replacement_occurred:
+        logger.info("[RAG-BUILDER] Document replacement occurred. Attempting to trigger Render service restart via API.")
         try:
-            main_py_path = os.path.join(os.path.dirname(__file__), 'main.py')
-            if os.path.exists(main_py_path):
-                os.utime(main_py_path, None) # Touch main.py to trigger reload
-                logger.info("[RAG-BUILDER] Document replacement occurred. Touched main.py to trigger server reload.")
-            else:
-                logger.warning(f"[RAG-BUILDER] main.py not found at {main_py_path}. Cannot trigger reload.")
-        except Exception as e:
-            logger.error(f"[RAG-BUILDER] Error touching main.py to trigger reload: {e}", exc_info=True)
+            service_id = os.getenv("RENDER_SERVICE_ID")
+            api_token = os.getenv("RENDER_API_TOKEN")
 
+            if not service_id:
+                logger.warning("[RAG-BUILDER] RENDER_SERVICE_ID environment variable not set. Cannot trigger Render restart.")
+            elif not api_token:
+                logger.warning("[RAG-BUILDER] RENDER_API_TOKEN environment variable not set. Cannot trigger Render restart.")
+            else:
+                restart_url = f"https://api.render.com/v1/services/{service_id}/restart"
+                headers = {
+                    "Authorization": f"Bearer {api_token}",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json" 
+                }
+                
+                logger.info(f"[RAG-BUILDER] Sending POST request to Render restart API: {restart_url}")
+                response = requests.post(restart_url, headers=headers)
+                
+                if 200 <= response.status_code < 300:
+                    logger.info(f"[RAG-BUILDER] Successfully triggered Render service restart. Status: {response.status_code}, Response: {response.text}")
+                else:
+                    logger.error(f"[RAG-BUILDER] Failed to trigger Render service restart. Status: {response.status_code}, Response: {response.text}")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[RAG-BUILDER] Error calling Render API to trigger restart: {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"[RAG-BUILDER] An unexpected error occurred while trying to trigger Render restart: {e}", exc_info=True)
+    else:
+        logger.info("[RAG-BUILDER] No document replacements occurred. Skipping Render service restart.")
 
 # --- Command-Line Interface ---
 def main():
