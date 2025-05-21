@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional
 import requests
 from bs4 import BeautifulSoup
 from google.adk.tools import load_memory  # Added import
+import chromadb # Added import
 
 # --- ADK Session and Memory Integration ---
 from .session_memory import session_service, memory_service
@@ -124,11 +125,15 @@ def get_vector_db() -> Optional[Chroma]:
         
         # Check if vector database exists
         if os.path.exists(actual_db_path) and os.path.isdir(actual_db_path):  # Check if it's a directory
-            logger.info(f"Loading vector database from {actual_db_path} with collection '{collection_name_to_load}' (active RAG: {ACTIVE_RAG_NAME})")
+            logger.info(f"Loading vector database from {actual_db_path} with collection \'{collection_name_to_load}\' (active RAG: {ACTIVE_RAG_NAME})")
             return Chroma(
-                persist_directory=actual_db_path,
                 embedding_function=embedding_function,
-                collection_name=collection_name_to_load # Specify the collection name
+                collection_name=collection_name_to_load, # Specify the collection name
+                client_settings=chromadb.config.Settings( # Explicit client settings
+                    is_persistent=True,
+                    persist_directory=actual_db_path,
+                    anonymized_telemetry=False # Consistent with logs
+                )
             )
         else:
             logger.warning(f"Vector database path not found at {actual_db_path} for active RAG: {ACTIVE_RAG_NAME}")
@@ -186,17 +191,20 @@ def rag_answer(question: str) -> dict:
         logger.info(f"Performing similarity search for question: {question} in RAG: {ACTIVE_RAG_NAME}")
         documents = vector_db.similarity_search(question, k=3)
         
-        if not documents:
-            logger.warning(f"No relevant documents found in vector database for RAG: {ACTIVE_RAG_NAME} for question: {question}")
+        # Filter out documents with None page_content
+        valid_documents = [doc for doc in documents if doc.page_content is not None]
+
+        if not valid_documents:
+            logger.warning(f"No relevant documents with valid content found in vector database for RAG: {ACTIVE_RAG_NAME} for question: {question}")
             return {
-                "status": "no_matches_found",  # Changed from partial_success
+                "status": "no_matches_found",
                 "answer": f"I couldn't find specific information about '{question}' in the knowledge base: '{ACTIVE_RAG_NAME}'. Please try a different query or check if the RAG is populated correctly.",
             }
         
         # Format the retrieved information
-        retrieved_context = "\n\n".join([f"From {doc.metadata.get('source', 'unknown source')}: {doc.page_content}" for doc in documents])
+        retrieved_context = "\n\n".join([f"From {doc.metadata.get('source', 'unknown source')}: {doc.page_content}" for doc in valid_documents])
         
-        logger.info(f"Found {len(documents)} relevant documents")
+        logger.info(f"Found {len(valid_documents)} relevant documents with valid content")
         
         # Return the retrieved information
         return {

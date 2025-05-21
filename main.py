@@ -385,15 +385,11 @@ if __name__ == "__main__":
 
     CUSTOM_RAG_BASE_PATH.mkdir(parents=True, exist_ok=True)
     
-    # Define the desired max body size (100MB in this example)
-    max_body_size_bytes = 100 * 1024 * 1024 # 104,857,600 bytes
-
     config = uvicorn.Config(
         "main:app", 
         host="0.0.0.0", 
         port=int(os.environ.get("PORT", 8000)), 
         log_level="info", # Added for better logging
-        limit_max_body_size=max_body_size_bytes
     )
     server = uvicorn.Server(config)
     server.run() # This will internally use asyncio.run if needed

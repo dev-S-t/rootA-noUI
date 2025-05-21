@@ -23,6 +23,8 @@ import sys
 import argparse
 import logging
 from typing import List, Optional, Set
+import datetime # Added import
+import shutil # Added import
 
 import dotenv
 from langchain_core.documents import Document
@@ -30,6 +32,7 @@ from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_chroma import Chroma
+import chromadb # Added import
 # The google.generativeai package will be imported by langchain_google_genai
 # but we might need to import it directly if we were to use genai.configure explicitly
 # For now, langchain_google_genai handles API key from environment variable.
@@ -59,13 +62,13 @@ def load_environment():
     return api_key
 
 # --- Document Processing ---
-def load_documents_from_folder(folder_path: str, processed_sources: Set[str]) -> List[Document]:
+def load_documents_from_folder(folder_path: str) -> List[Document]:
     """
-    Loads documents from PDF and DOCX files in the specified folder,
-    skipping files whose source path is already in processed_sources.
+    Loads all documents from PDF and DOCX files in the specified folder.
+    The source metadata for each document is set to its absolute file path.
     """
     loaded_docs: List[Document] = []
-    logger.info(f"Scanning document folder: {folder_path}")
+    logger.info(f"Scanning document folder for loading: {folder_path}")
 
     if not os.path.isdir(folder_path):
         logger.error(f"Specified document folder does not exist: {folder_path}")
@@ -79,9 +82,8 @@ def load_documents_from_folder(folder_path: str, processed_sources: Set[str]) ->
             logger.debug(f"Skipping non-file item: {filename}")
             continue
 
-        if abs_file_path in processed_sources:
-            logger.info(f"Skipping already processed file: {filename}")
-            continue
+        # Removed processed_sources check, as we now delete then add for updates.
+        # All files found will be loaded.
 
         loader: Optional[PyPDFLoader | Docx2txtLoader] = None
         doc_type = ""
@@ -152,42 +154,98 @@ def process_documents_and_build_db(
     logger.info(f"Initializing/Loading ChromaDB from: {db_path} with collection: {collection_name}")
     vector_db = Chroma(
         collection_name=collection_name,
-        persist_directory=db_path,
         embedding_function=embeddings,
+        client_settings=chromadb.config.Settings( # Explicit client settings
+            is_persistent=True,
+            persist_directory=db_path,
+            anonymized_telemetry=False # Consistent with logs
+        )
     )
 
-    # Get sources already in the DB to avoid re-processing
-    processed_sources: Set[str] = set()
-    try:
-        existing_docs = vector_db.get(include=["metadatas"])
-        if existing_docs and existing_docs.get("metadatas"):
-            for metadata in existing_docs["metadatas"]:
-                if metadata and "source" in metadata:
-                    processed_sources.add(metadata["source"])
-        logger.info(f"Found {len(processed_sources)} sources already processed in the database.")
-    except Exception as e: # Broad exception if collection doesn't exist or other DB issues
-        logger.warning(f"Could not retrieve existing sources from DB (collection might be new or empty): {e}")
-
-
-    new_documents = load_documents_from_folder(docs_folder, processed_sources)
-
-    if not new_documents:
-        logger.info("No new documents found to process or load from the folder.")
+    logger.info(f"Scanning {docs_folder} for documents to process...")
+    if not os.path.isdir(docs_folder):
+        logger.error(f"Specified document folder does not exist: {docs_folder}")
         return
 
-    chunks = split_documents_into_chunks(new_documents, chunk_size, chunk_overlap)
+    all_new_versioned_chunks_added_count = 0
+    processed_files_count = 0
 
-    if chunks:
-        logger.info(f"Adding {len(chunks)} new chunks to the vector store...")
+    for filename in os.listdir(docs_folder): # docs_folder is like ".../s_temp_uploads"
+        original_file_path_in_temp_uploads = os.path.join(docs_folder, filename)
+        original_source_id = os.path.abspath(original_file_path_in_temp_uploads)
+
+        if not os.path.isfile(original_file_path_in_temp_uploads):
+            logger.debug(f"Skipping non-file item: {filename}")
+            continue
+
+        logger.info(f"Processing document: {filename} (original source ID: {original_source_id})")
+
+        # Create temp dir for single file processing
+        temp_single_file_dir = os.path.join(os.path.dirname(docs_folder), "_temp_single_file_processing")
+        os.makedirs(temp_single_file_dir, exist_ok=True)
+        path_to_file_in_temp_single_dir = os.path.join(temp_single_file_dir, filename)
+        shutil.copy2(original_file_path_in_temp_uploads, path_to_file_in_temp_single_dir)
+
+        loaded_docs_from_temp = load_documents_from_folder(temp_single_file_dir)
+        shutil.rmtree(temp_single_file_dir)
+
+        if not loaded_docs_from_temp:
+            logger.warning(f"Could not load document {filename}. Skipping.")
+            continue
+        
+        # CRITICAL STEP: Correct the source metadata on the loaded documents BEFORE chunking
+        for doc_obj in loaded_docs_from_temp:
+            doc_obj.metadata["source"] = original_source_id
+
+        new_chunks_from_upload = split_documents_into_chunks(loaded_docs_from_temp, chunk_size, chunk_overlap)
+
+        if not new_chunks_from_upload:
+            logger.info(f"No chunks generated for {filename}. Skipping.")
+            continue
+
+        # Fetch existing page_contents for the ORIGINAL source ID
+        existing_page_contents_for_original_source = set()
         try:
-            # Langchain's default Document objects from loaders get UUIDs, so re-adding the
-            # same content (if not skipped by source check) will create new entries.
-            # If specific ID management is needed for updates, that's a more complex step.
-            vector_db.add_documents(chunks)
-            logger.info("Successfully added new chunks to the database.")
+            logger.debug(f"Fetching existing chunk documents for original source: {original_source_id}")
+            existing_data = vector_db.get(where={"source": original_source_id}, include=["documents"])
+            if existing_data and existing_data.get("documents"):
+                for content in existing_data["documents"]:
+                    if content is not None:
+                        existing_page_contents_for_original_source.add(content)
+                logger.info(f"Found {len(existing_page_contents_for_original_source)} existing unique page_contents for original source: {original_source_id}")
+            else:
+                logger.info(f"No existing chunk documents found for original source: {original_source_id}")
         except Exception as e:
-            logger.error(f"Failed to add chunks to ChromaDB: {e}", exc_info=True)
-            return
+            logger.error(f"Error fetching existing content for {original_source_id}: {e}", exc_info=True)
+            continue
+
+        chunks_to_add_with_versioned_ids = []
+        timestamp_str = datetime.datetime.now().strftime('%Y%m%d%H%M%S%f')
+        
+        for i, fresh_chunk in enumerate(new_chunks_from_upload):
+            if fresh_chunk.page_content not in existing_page_contents_for_original_source:
+                versioned_source_id = f"{original_source_id}#v{timestamp_str}_{i}"
+                logger.debug(f"New/modified content found. Assigning versioned_source_id: {versioned_source_id}")
+                
+                versioned_chunk_doc = Document(
+                    page_content=fresh_chunk.page_content,
+                    metadata={**fresh_chunk.metadata, "source": versioned_source_id} 
+                )
+                chunks_to_add_with_versioned_ids.append(versioned_chunk_doc)
+            # else: logger.debug(f"Chunk content for {original_source_id} already exists. Skipping.")
+
+        if chunks_to_add_with_versioned_ids:
+            try:
+                vector_db.add_documents(chunks_to_add_with_versioned_ids)
+                logger.info(f"Successfully added {len(chunks_to_add_with_versioned_ids)} new/modified chunks for original source {original_source_id} with versioned IDs.")
+                all_new_versioned_chunks_added_count += len(chunks_to_add_with_versioned_ids)
+            except Exception as e:
+                logger.error(f"Failed to add versioned chunks for {original_source_id} to ChromaDB: {e}", exc_info=True)
+        else:
+            logger.info(f"No new or modified content found for original source {original_source_id} to add.")
+        processed_files_count +=1
+
+    logger.info(f"Finished processing all documents. Added a total of {all_new_versioned_chunks_added_count} new/modified versioned chunks from {processed_files_count} files.")
 
 # --- Command-Line Interface ---
 def main():
