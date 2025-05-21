@@ -18,7 +18,7 @@ except Exception as e:
 import os
 import asyncio
 import shutil
-from fastapi import FastAPI, Request, HTTPException, Depends, UploadFile, File, Form
+from fastapi import FastAPI, Request, HTTPException, Depends, UploadFile, File, Form, Header
 from fastapi.responses import JSONResponse, StreamingResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
@@ -374,6 +374,37 @@ async def run_sse_endpoint(request: Request, user_rag_name: Optional[str] = None
             agent_root_agent.instruction = original_agent_instruction
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+async def get_session_id(user_id: str, session_id_header: Optional[str] = Header(None, alias="X-Session-Id")) -> str:
+    if session_id_header:
+        # Check if the session actually exists and is valid in the ADK's session service
+        session = SESSION_SERVICE.get_session(session_id=session_id_header)
+        if session:
+            logger.info(f"Using existing and valid session ID from header for user {user_id}: {session_id_header}")
+            return session_id_header
+        else:
+            logger.warning(f"Session ID {session_id_header} from header not found in SessionService. Will generate and create a new session.")
+    else:
+        logger.info(f"No X-Session-Id header found for user {user_id}. Will generate and create a new session.")
+    
+    # If we reach here, either no header was provided, or the one provided was invalid/not found.
+    new_session_id = str(uuid.uuid4())
+    logger.info(f"Generated new session ID for user {user_id}: {new_session_id}. Attempting to create it in SessionService.")
+    try:
+        # Explicitly create the session here.
+        # This ensures that if a new ID is passed to run_async, the session object already exists.
+        created_session = SESSION_SERVICE.create_session(session_id=new_session_id, user_id=user_id)
+        # Verify creation, primarily for logging and sanity checking.
+        if created_session and SESSION_SERVICE.get_session(new_session_id):
+             logger.info(f"Successfully created and verified new session {new_session_id} for user {user_id} in SessionService.")
+        else:
+            # This would indicate a deeper issue with SessionService.create_session or get_session.
+            logger.error(f"Failed to create or subsequently verify new session {new_session_id} in SessionService. The runner might still encounter issues.")
+    except Exception as e:
+        logger.error(f"Exception during explicit session creation for {new_session_id} in get_session_id: {e}", exc_info=True)
+        # If creation fails, returning the ID might still lead to run_async failing,
+        # but run_async has its own error handling for session not found.
+    return new_session_id
 
 # Mount static files - this should be after all API routes and before the __main__ block
 static_files_path = pathlib.Path(__file__).parent / "UI-UX"
