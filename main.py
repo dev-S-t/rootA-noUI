@@ -329,7 +329,7 @@ async def run_sse_endpoint(request: Request, user_rag_name: Optional[str] = None
     requested_session_id = data.get("session_id")
 
     if requested_session_id:
-        session = await SESSION_SERVICE.get_session(session_id=requested_session_id)
+        session = await SESSION_SERVICE.get_session(session_id=requested_session_id, app_name=APP_NAME, user_id=user_id)
         if session:
             final_session_id = requested_session_id
             # logger.info(f"Using existing session ID from request: {final_session_id}")
@@ -397,7 +397,7 @@ async def run_sse_endpoint(request: Request, user_rag_name: Optional[str] = None
 async def get_session_id(user_id: str, session_id_header: Optional[str] = Header(None, alias="X-Session-Id")) -> str:
     if session_id_header:
         # Check if the session actually exists and is valid in the ADK's session service
-        session = await SESSION_SERVICE.get_session(session_id=session_id_header)
+        session = await SESSION_SERVICE.get_session(session_id=session_id_header, app_name=APP_NAME, user_id=user_id)
         if session:
             logger.info(f"Using existing and valid session ID from header for user {user_id}: {session_id_header}")
             return session_id_header
@@ -414,7 +414,7 @@ async def get_session_id(user_id: str, session_id_header: Optional[str] = Header
         # This ensures that if a new ID is passed to run_async, the session object already exists.
         created_session = await SESSION_SERVICE.create_session(session_id=new_session_id, user_id=user_id)
         # Verify creation, primarily for logging and sanity checking.
-        if created_session and await SESSION_SERVICE.get_session(new_session_id):
+        if created_session and await SESSION_SERVICE.get_session(session_id=new_session_id, app_name=APP_NAME, user_id=user_id):
              logger.info(f"Successfully created and verified new session {new_session_id} for user {user_id} in SessionService.")
         else:
             # This would indicate a deeper issue with SessionService.create_session or get_session.
