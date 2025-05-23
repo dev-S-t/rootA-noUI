@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TechieMaya_Solutions</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>TechieMaya_Solutions</h1>
+            <div id="user-info" class="hidden">
+                <span id="username-display"></span>
+                <button id="logout-button">Logout</button>
+            </div>
+        </header>
+
+        <main>
+            <!-- Login Section -->
+            <section id="login-section" class="active-section">
+                <h2>Login</h2>
+                <form id="login-form">
+                    <div>
+                        <label for="username">Username:</label>
+                        <input type="text" id="username" name="username" required>
+                    </div>
+                    <div>
+                        <label for="password">Password:</label>
+                        <input type="password" id="password" name="password" required>
+                    </div>
+                    <button type="submit">Login</button>
+                    <p id="login-error" class="error-message"></p>
+                </form>
+                <p>Don't have an account? <a href="#" id="show-signup-link">Sign up</a></p>
+            </section>
+
+            <!-- Signup Section -->
+            <section id="signup-section" class="hidden">
+                <h2>Sign Up</h2>
+                <form id="signup-form">
+                    <div>
+                        <label for="signup-username">Username:</label>
+                        <input type="text" id="signup-username" name="signup-username" required>
+                    </div>
+                    <div>
+                        <label for="signup-password">Password:</label>
+                        <input type="password" id="signup-password" name="signup-password" required>
+                    </div>
+                    <div>
+                        <label for="access-code">Access Code:</label>
+                        <input type="text" id="access-code" name="access-code" required>
+                    </div>
+                    <button type="submit">Sign Up</button>
+                    <p id="signup-message" class="status-message"></p>
+                </form>
+                <p>Already have an account? <a href="#" id="show-login-link">Login</a></p>
+            </section>
+
+            <!-- Upload Section -->
+            <section id="upload-section" class="hidden">
+                <h2>Manage Your RAG Database</h2>
+                <div id="db-status-message"></div>
+                <form id="upload-form">
+                    <div>
+                        <label for="files">Upload PDF/DOCX files to build/update your RAG:</label>
+                        <input type="file" id="files" name="files" multiple accept=".pdf,.docx">
+                    </div>
+                    <div id="selected-files-preview" class="selected-files-container"></div>
+                    <div>
+                        <label for="custom-instructions">Custom Agent Instructions (Optional):</label>
+                        <textarea id="custom-instructions" name="custom_instructions" rows="4" placeholder="Enter custom instructions for your agent when using this RAG..."></textarea>
+                    </div>
+                    <button type="submit">Upload Files & Instructions</button>
+                    <p id="upload-status" class="status-message"></p>
+                    <div id="uploaded-files-list"></div>
+                    <div id="rejected-files-list"></div>
+                    <button id="process-files-button" class="hidden">Process Uploaded Files</button>
+                    <p id="process-status" class="status-message"></p>
+                    <div id="api-info-box" class="hidden">
+                        <h3>API Endpoints Ready</h3>
+                        <p>Your custom RAG is now accessible via the following API endpoints:</p>
+                        <ul>
+                            <li id="api-run-endpoint"></li>
+                            <li id="api-run-sse-endpoint"></li>
+                        </ul>
+                        <p>Example cURL command to test <code>/run/{username}</code>:</p>
+                        <pre><code id="api-curl-example"></code></pre>
+                    </div>
+                </form>
+                <div class="navigation-buttons">
+                    <button id="chat-default-rag-button" class="nav-button hidden">Chat with Default RAG</button>
+                    <button id="chat-default-rag-sse-button" class="nav-button hidden">Chat with Default RAG (Show Steps)</button>
+                    <button id="chat-custom-rag-button" class="nav-button hidden">Chat with My Custom RAG</button>
+                </div>
+            </section>
+
+            <!-- Chat Section -->
+            <section id="chat-section" class="hidden"> <!-- Will be controlled by JS -->
+                <button id="back-to-upload-button" class="action-button">Back to RAG Management</button> <!-- Added Back Button -->
+                <h2>Chat with Your RAG Agent</h2>
+                <div id="chat-window">
+                    <div id="chat-messages"></div>
+                </div>
+                <form id="chat-form">
+                    <input type="text" id="chat-input" placeholder="Ask your agent..." autocomplete="off">
+                    <button type="submit">Send</button>
+                </form>
+                <p id="chat-status" class="status-message"></p>
+            </section>
+        </main>
+
+        <footer>
+            <p>&copy; 2024 TechieMaya_Solutions</p>
+        </footer>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

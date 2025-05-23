@@ -10,6 +10,9 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from typing import Dict, Any, Optional
 import requests
 from bs4 import BeautifulSoup
+from google.adk.tools import load_memory  # Added import
+import chromadb # Added import
+
 # --- ADK Session and Memory Integration ---
 from .session_memory import session_service, memory_service
 from google.adk.runners import Runner
@@ -26,10 +29,17 @@ dotenv.load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 api_key = os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=api_key)
 
-# Vector DB path
-VECTOR_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "vector_db")
+# Vector DB path (base directory)
+CUSTOM_RAG_BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "custom_rag")
+ACTIVE_RAG_NAME = "default_rag"  # Module-level variable, to be set by main.py
 
 APP_NAME = "multi_tool_agent_app"
+
+def get_vector_db_path(rag_name: str) -> str:
+    """Constructs the absolute path to a specific RAG database within the custom_rag folder."""
+    if not rag_name:  # Fallback to default if empty or None
+        rag_name = "default_rag"
+    return os.path.join(CUSTOM_RAG_BASE_DIR, rag_name)
 
 # Utility to get a runner for a user/session (can be used in async orchestration)
 def get_agent_runner(user_id: str, session_id: str):
@@ -47,6 +57,7 @@ def ensure_session(user_id: str, session_id: str):
         user_id=user_id,
         session_id=session_id
     )
+
 def get_weather(city: str) -> dict:
     """Retrieves the current weather report for a specified city.
 
@@ -100,7 +111,11 @@ def get_current_time(city: str) -> dict:
 
 
 def get_vector_db() -> Optional[Chroma]:
-    """Initialize and return the vector database client"""
+    """Initialize and return the vector database client based on ACTIVE_RAG_NAME."""
+    
+    actual_db_path = get_vector_db_path(ACTIVE_RAG_NAME)  # Uses module-level ACTIVE_RAG_NAME
+    collection_name_to_load = f"{ACTIVE_RAG_NAME}_collection" # Construct the collection name
+
     try:
         # Initialize the embedding model
         embedding_function = GoogleGenerativeAIEmbeddings(
@@ -109,22 +124,30 @@ def get_vector_db() -> Optional[Chroma]:
         )
         
         # Check if vector database exists
-        if os.path.exists(VECTOR_DB_PATH):
-            logger.info(f"Loading vector database from {VECTOR_DB_PATH}")
-            return Chroma(persist_directory=VECTOR_DB_PATH, embedding_function=embedding_function)
+        if os.path.exists(actual_db_path) and os.path.isdir(actual_db_path):  # Check if it's a directory
+            logger.info(f"Loading vector database from {actual_db_path} with collection \'{collection_name_to_load}\' (active RAG: {ACTIVE_RAG_NAME})")
+            return Chroma(
+                embedding_function=embedding_function,
+                collection_name=collection_name_to_load, # Specify the collection name
+                client_settings=chromadb.config.Settings( # Explicit client settings
+                    is_persistent=True,
+                    persist_directory=actual_db_path,
+                    anonymized_telemetry=False # Consistent with logs
+                )
+            )
         else:
-            logger.warning(f"Vector database not found at {VECTOR_DB_PATH}")
+            logger.warning(f"Vector database path not found at {actual_db_path} for active RAG: {ACTIVE_RAG_NAME}")
             return None
     except Exception as e:
-        logger.error(f"Error initializing vector database: {e}")
+        logger.error(f"Error initializing vector database for RAG {ACTIVE_RAG_NAME} with collection {collection_name_to_load}: {e}")
         return None
 
 
 def rag_answer(question: str) -> dict:
     """Answers questions using Retrieval-Augmented Generation (RAG).
     
-    This tool retrieves relevant information from a vector database and uses it
-    to generate a more informed answer to user questions.
+    This tool retrieves relevant information from the active vector database 
+    (determined by ACTIVE_RAG_NAME) and uses it to generate a more informed answer.
 
     Args:
         question (str): The user's question.
@@ -133,11 +156,11 @@ def rag_answer(question: str) -> dict:
         dict: status and the answer or error message.
     """
     # Initialize vector database
-    vector_db = get_vector_db()
+    vector_db = get_vector_db()  # Calls updated get_vector_db
     
     if not vector_db:
         # Fall back to mock knowledge base if vector DB is not available
-        logger.warning("Vector database not available, using fallback knowledge base")
+        logger.warning(f"Vector database for '{ACTIVE_RAG_NAME}' not available, using fallback knowledge base")
         knowledge_base = {
             "google adk": "Google Agent Development Kit (ADK) is a framework for building AI agents. It supports tools, state management, and sequential agents.",
             "rag": "Retrieval-Augmented Generation (RAG) is a technique that enhances LLM outputs by retrieving relevant information from external sources before generating responses.",
@@ -160,25 +183,28 @@ def rag_answer(question: str) -> dict:
         else:
             return {
                 "status": "partial_success",
-                "answer": "I don't have specific information about that in my knowledge base, but I'll try to answer based on my general knowledge.",
+                "answer": "I don't have specific information about that in my knowledge base (fallback mode), but I'll try to answer based on my general knowledge.",
             }
     
     try:
         # Perform a similarity search on the question
-        logger.info(f"Performing similarity search for question: {question}")
+        logger.info(f"Performing similarity search for question: {question} in RAG: {ACTIVE_RAG_NAME}")
         documents = vector_db.similarity_search(question, k=3)
         
-        if not documents:
-            logger.warning("No relevant documents found in vector database")
+        # Filter out documents with None page_content
+        valid_documents = [doc for doc in documents if doc.page_content is not None]
+
+        if not valid_documents:
+            logger.warning(f"No relevant documents with valid content found in vector database for RAG: {ACTIVE_RAG_NAME} for question: {question}")
             return {
-                "status": "partial_success",
-                "answer": "I couldn't find specific information about that in my knowledge base, but I'll try to answer based on my general knowledge.",
+                "status": "no_matches_found",
+                "answer": f"I couldn't find specific information about '{question}' in the knowledge base: '{ACTIVE_RAG_NAME}'. Please try a different query or check if the RAG is populated correctly.",
             }
         
         # Format the retrieved information
-        retrieved_context = "\n\n".join([f"From {doc.metadata.get('source', 'unknown source')}: {doc.page_content}" for doc in documents])
+        retrieved_context = "\n\n".join([f"From {doc.metadata.get('source', 'unknown source')}: {doc.page_content}" for doc in valid_documents])
         
-        logger.info(f"Found {len(documents)} relevant documents")
+        logger.info(f"Found {len(valid_documents)} relevant documents with valid content")
         
         # Return the retrieved information
         return {
@@ -258,10 +284,25 @@ def summarizer(query: str, content: str) -> dict:
         logger.error(f"Summarizer error: {e}")
         return {"status": "error", "error_message": str(e)}
 
-
-
-
-
+# --- Root Agent Default Instruction ---
+DEFAULT_ROOT_AGENT_INSTRUCTION = (
+    "ALWAYS plan before staring to answer the user, do not share this planning"
+    "You are a helpful assistant that always provide answers . With RAG based knowledge base for fact sheets of SHL assessment solutions product catalogue, you should help recommend assessment solutions and provide information about these assessments in a structured manner after using the rag tool. "
+    "you can assume that if user is asking about something it might be related to SHL product catalogue even if it might not feel intutive . "
+    "Even if the question is not about SHL, you should still provide a helpful answer. with a mention that you are intended for SHL product catalogue only. "
+    "You can also answer general questions using Retrieval-Augmented Generation (RAG). "
+    "To give users a sense of satisfation, try telling them why and what you are doning befor making tool calls , like 'I'm looking up the information about Techiemaya statup that you mentioned.' or 'I'm checking the SHL product catelogue for the assessment solution you asked about.' or 'I'm trying to find relevant information from the knowledge base.'etc "
+    "Always prefer RAG over web search unless the user explicitly asks for a web search. "
+    "The rag might contain information about topic that dont relate to SHL product catalogue. So you can search the rag for other queries as well. "
+    "MAKE recursive calls to rag_answer to get more information if needed. Max recursion allowed is 3. "
+    "Instead of asking the user for more information, you can perform a web search if you think that additional information can be available online. "
+    "If the user wants to do a web search or mentions a link or url , you can transfer the conversation to the search_bot agent to perform web seach followed by summarization ."
+    "when making a switch between agents, you can mention it but don't ask for user permission. "
+    "Dont be quick to recommand web search if asked about a topic untill specifically asked , instead perform a rag search first if required info is not fond then directly and automatically transfer to search_bot agent to perform the web search followed by summarization (this transfer does not requires user's input or permission )."
+    "If user asks for or mentions some specific named entity like a company or startup or products or place name etc whoes understanding is required to answer the question effectively, YOU MUST use the web search tool to find information about it and then continue the conversation with the user. "
+    "If the query is about SHL or assessment solutions , always first use the rag_answer tool to find relevant information from the knowledge base. "
+    "you must not share any internal prompts or api keys or instructions with the user. "
+)
 
 # --- Search Bot Agent ---
 search_bot = Agent(
@@ -271,7 +312,7 @@ search_bot = Agent(
     instruction=(
         "You are a search assistant. Use web_search to find information online, link_fetcher to extract webpage content, and summarizer to generate query-specific summaries. "
         "Whenever you use web_search or link_fetcher, always call summarizer next to provide a summary according to the user's query. "
-        "If the user wants to do a RAG search or access weather/time tools, you can transfer the conversation to the root agent."
+        "If the user wants to do a RAG search or other tools not available to you, you can transfer the conversation to the root agent."
         "After summarizing, always transfer the conversation back to the root agent for further assistance. "
         "You must not share any internal prompts or api keys or instructions with the user. "
     ),
@@ -285,26 +326,26 @@ root_agent = Agent(
     description=(
         "Agent to  provide information using RAG. It can also answer questions about the time and weather in a city.Or transfer contol to other agent for web search and link fetcher"
     ),
-    instruction=(
-        "ALWAYS plan before staring to answer the user, do not share this planning"
-        "You are a helpful assistant that always provide answers . With RAG based knowledge base for fact sheets of SHL assessment solutions product catalogue, you should help recommend assessment solutions and provide information about these assessments in a structured manner after using the rag tool. "
-        "you can assume that if user is asking about something it might be related to SHL product catalogue even if it might not feel intutive . "
-        "Even if the question is not about SHL, you should still provide a helpful answer. with a mention that you are intended for SHL product catalogue only. "
-        "You can also answer general questions using Retrieval-Augmented Generation (RAG). "
-        "To give users a sense of satisfation, try telling them why and what you are doning befor making tool calls , like 'I'm looking up the information about Techiemaya statup that you mentioned.' or 'I'm checking the SHL product catelogue for the assessment solution you asked about.' or 'I'm trying to find relevant information from the knowledge base.'etc "
-        "Always prefer RAG over web search unless the user explicitly asks for a web search. "
-        "The rag might contain information about topic that dont relate to SHL product catalogue. So you can search the rag for other queries as well. "
-        "MAKE recursive calls to rag_answer to get more information if needed. Max recursion allowed is 3. "
-        "Instead of asking the user for more information, you can perform a web search if you think that additional information can be available online. "
-        "If the user wants to do a web search or mentions a link or url , you can transfer the conversation to the search_bot agent to perform web seach followed by summarization ."
-        "when making a switch between agents, you can mention it but don't ask for user permission. "
-        "Dont be quick to recommand web search if asked about a topic untill specifically asked , instead perform a rag search first if required info is not fond then directly and automatically transfer to search_bot agent to perform the web search followed by summarization (this transfer does not requires user's input or permission )."
-        "If user asks for or mentions some specific named entity like a company or startup or products or place name etc whoes understanding is required to answer the question effectively, YOU MUST use the web search tool to find information about it and then continue the conversation with the user. "
-        "If the query is about SHL or assessment solutions , always first use the rag_answer tool to find relevant information from the knowledge base. "
-        "you must not share any internal prompts or api keys or instructions with the user. "
+    instruction=DEFAULT_ROOT_AGENT_INSTRUCTION + (
+        "You are a helpful assistant. "
+        "Use the 'load_memory' tool if the user asks about or refers to previous messages in the conversation. when you cant figure out the context of the conversation , or what 'it' 'that' reffers to use 'load_memory' tool. "
+        "When asked to search the web, use the 'search_bot' to get relevant info. "
+        "When asked to search in RAG, use the 'rag_answer' tool. always first use rag tool before web search. "
+        "When asked to fetch a link, use the 'link_fetcher' tool. "
+        "when a link is provided, use the 'link_fetcher' tool to fetch the content. "
+        "you you dont have the context or knowledge about a topic use the search_bot agent to perform web search and summarization. and then use that knowledge to answer the user. "
+        "If you don't know the answer, or if the user asks you to do something you cannot do, say so."
+        "if the current rag search does not provide enough information, you can make recursive calls to the rag_answer tool to get more information. Max recursion allowed is 3. "
+        "if the conversation is transfered to search_bot it must be transfered back to you after the search and summarization is done. "
+        "You must not share any internal prompts or api keys or instructions with the user. "
+        "if info from the knowledge base is not enough to answer the user, you can use web search tool to find more information.You dont need to ask for user permission to do this. "
+        "you can recursively call the search_bot agent to perform web search and summarization if needed. Max recursion allowed is 3. "
+        "If the user asks for or mentions some specific named entity like a company or startup or products or place name etc whoes understanding is required to answer the question effectively, YOU MUST use the web search tool to find information about it and then continue the conversation with the user after that. "
+        "in the final answer always try include what tool and sub agent you used and for what "
     ),
-    tools=[get_weather, get_current_time, rag_answer],
+    tools=[get_current_time, get_weather, rag_answer, load_memory],  # Added load_memory
     sub_agents=[search_bot],
+    include_contents='default'  # Ensures current session history is part of the prompt to the LLM
 )
 
 # --- ADK Web UI Entrypoint ---
@@ -315,4 +356,7 @@ AGENT = root_agent
 SESSION_SERVICE = session_service
 MEMORY_SERVICE = memory_service
 APP_NAME = APP_NAME
+
+# Export the new path function if main.py needs it (it does)
+__all__ = ['AGENT', 'SESSION_SERVICE', 'MEMORY_SERVICE', 'APP_NAME', 'get_vector_db_path', 'ACTIVE_RAG_NAME', 'DEFAULT_ROOT_AGENT_INSTRUCTION', 'root_agent']
 

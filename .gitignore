@@ -1,0 +1,9 @@
+.env
+.python-version
+pyproject.toml
+uv.lock
+.venv
+__pycache__/
+*.pyc
+# Ignore ADK Python main project folder
+adk-python-main/
