@@ -1,21 +1,5 @@
-# --- BEGIN SQLITE PATCH ---
-# This MUST be at the very top, before any imports that might load sqlite3 indirectly (like chromadb)
-import sys
-SQLITE_PATCHED = False
-try:
-    import pysqlite3
-    sys.modules['sqlite3'] = pysqlite3
-    SQLITE_PATCHED = True
-    print(f"Successfully patched sqlite3 with pysqlite3 in FastAPI app. Using SQLite version: {pysqlite3.sqlite_version}")
-except ImportError:
-    print("WARNING (FastAPI app): pysqlite3 module not found. Ensure 'pysqlite3-binary' is installed in the correct environment. Falling back to system sqlite3.")
-except Exception as e:
-    print(f"WARNING (FastAPI app): An unexpected error occurred while trying to patch sqlite3 with pysqlite3: {e}. Falling back to system sqlite3.")
-# --- END SQLITE PATCH ---
-
-
-
 import os
+import sys # Keep sys if it's used elsewhere, or remove if only for the patch
 import asyncio
 import shutil
 from fastapi import FastAPI, Request, HTTPException, Depends, UploadFile, File, Form
