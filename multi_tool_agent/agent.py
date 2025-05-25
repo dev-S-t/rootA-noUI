@@ -5,13 +5,13 @@ from google.adk.agents import Agent
 import logging
 import dotenv
 import google.generativeai as genai
-from langchain_chroma import Chroma
+from langchain_community.vectorstores import FAISS # Corrected FAISS import
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from typing import Dict, Any, Optional
 import requests
 from bs4 import BeautifulSoup
 from google.adk.tools import load_memory  # Added import
-import chromadb # Added import
+# import chromadb # No longer needed for FAISS
 
 # --- ADK Session and Memory Integration ---
 from .session_memory import session_service, memory_service
@@ -110,36 +110,38 @@ def get_current_time(city: str) -> dict:
     return {"status": "success", "report": report}
 
 
-def get_vector_db() -> Optional[Chroma]:
-    """Initialize and return the vector database client based on ACTIVE_RAG_NAME."""
+def get_vector_db() -> Optional[FAISS]:
+    """Initialize and return the FAISS vector database client based on ACTIVE_RAG_NAME."""
     
     actual_db_path = get_vector_db_path(ACTIVE_RAG_NAME)  # Uses module-level ACTIVE_RAG_NAME
-    collection_name_to_load = f"{ACTIVE_RAG_NAME}_collection" # Construct the collection name
+    # FAISS uses an index_name, which corresponds to the collection_name concept here.
+    # The rag_builder.py saves files as {index_name}.faiss and {index_name}.pkl
+    # So, collection_name_to_load will be the base for these filenames.
+    index_name_to_load = f"{ACTIVE_RAG_NAME}_collection" 
+
+    faiss_file_path = os.path.join(actual_db_path, index_name_to_load + ".faiss")
 
     try:
         # Initialize the embedding model
         embedding_function = GoogleGenerativeAIEmbeddings(
-            model="models/embedding-001",
+            model="models/embedding-001", # Ensure this matches rag_builder.py
             google_api_key=api_key,
         )
         
-        # Check if vector database exists
-        if os.path.exists(actual_db_path) and os.path.isdir(actual_db_path):  # Check if it's a directory
-            logger.info(f"Loading vector database from {actual_db_path} with collection \'{collection_name_to_load}\' (active RAG: {ACTIVE_RAG_NAME})")
-            return Chroma(
-                embedding_function=embedding_function,
-                collection_name=collection_name_to_load, # Specify the collection name
-                client_settings=chromadb.config.Settings( # Explicit client settings
-                    is_persistent=True,
-                    persist_directory=actual_db_path,
-                    anonymized_telemetry=False # Consistent with logs
-                )
+        # Check if FAISS index files exist
+        if os.path.exists(faiss_file_path) and os.path.exists(os.path.join(actual_db_path, index_name_to_load + ".pkl")):
+            logger.info(f"Loading FAISS index from {actual_db_path} with index name \'{index_name_to_load}\' (active RAG: {ACTIVE_RAG_NAME})")
+            return FAISS.load_local(
+                folder_path=actual_db_path,
+                embeddings=embedding_function,
+                index_name=index_name_to_load,
+                allow_dangerous_deserialization=True # Important for FAISS
             )
         else:
-            logger.warning(f"Vector database path not found at {actual_db_path} for active RAG: {ACTIVE_RAG_NAME}")
+            logger.warning(f"FAISS index files (e.g., {index_name_to_load}.faiss) not found at {actual_db_path} for active RAG: {ACTIVE_RAG_NAME}")
             return None
     except Exception as e:
-        logger.error(f"Error initializing vector database for RAG {ACTIVE_RAG_NAME} with collection {collection_name_to_load}: {e}")
+        logger.error(f"Error initializing FAISS vector database for RAG {ACTIVE_RAG_NAME} with index {index_name_to_load}: {e}", exc_info=True)
         return None
 
 
@@ -359,4 +361,3 @@ APP_NAME = APP_NAME
 
 # Export the new path function if main.py needs it (it does)
 __all__ = ['AGENT', 'SESSION_SERVICE', 'MEMORY_SERVICE', 'APP_NAME', 'get_vector_db_path', 'ACTIVE_RAG_NAME', 'DEFAULT_ROOT_AGENT_INSTRUCTION', 'root_agent']
-
