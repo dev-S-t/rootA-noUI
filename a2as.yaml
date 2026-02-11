@@ -1,0 +1,364 @@
+manifest:
+  version: "0.1.3"
+  schema: https://a2as.org/cert/schema
+  subject:
+    name: dev-s-t/roota-noui
+    source: https://github.com/dev-s-t/roota-noui
+    branch: main
+    commit: "bef0cdcb"
+    scope: [multi_tool_agent/adk_runner.py, multi_tool_agent/agent.py, multi_tool_agent/session_memory.py]
+  issued:
+    by: A2AS.org
+    at: '2026-02-11T17:01:34Z'
+    url: https://a2as.org/certified/agents/dev-s-t/roota-noui
+  signatures:
+    digest: sha256:O3J6vdLWm3cpR8hVaZLhawLgnHnw17-x-pDa-0UgIvc
+    key: ed25519:_MXu9Nlet68sApPs_zsSeAgF4rqs_fjm1VbwuKPJKyo
+    sig: ed25519:2yusZadMzMcUq36KvLMaNASfEAKJ2i3VnugEdSwIPkXQR_O9HhBogI3OUhf7k0kGtZuY87W1QU9yvpLU8O8JBA
+
+agents:
+  root_agent:
+    type: instance
+    models: [gemini-2.0-flash]
+    tools: [get_current_time, get_weather, rag_answer, load_memory]
+    params:
+      name: root_agent
+      description: Agent to  provide information using RAG. It can also answer questions about the time and weather in a city.Or
+        transfer contol to other agent for web search and link fetcher
+      instruction: ''
+      include_contents: default
+      sub_agents: [search_bot]
+  search_bot:
+    type: instance
+    models: [gemini-2.0-flash]
+    tools: [web_search, link_fetcher, summarizer]
+    params:
+      name: search_bot
+      description: Agent to perform web searches, fetch webpage content, and summarize results.
+
+models:
+  gemini-2.0-flash:
+    type: literal
+    agents: [search_bot, root_agent]
+
+tools:
+  get_current_time:
+    type: function
+    agents: [root_agent]
+    params:
+      description: |-
+        Returns the current time in a specified city.
+
+        Args:
+            city (str): The name of the city for which to retrieve the current time.
+
+        Returns:
+            dict: status and result or error msg.
+  get_weather:
+    type: function
+    agents: [root_agent]
+    params:
+      description: |-
+        Retrieves the current weather report for a specified city.
+
+        Args:
+            city (str): The name of the city for which to retrieve the weather report.
+
+        Returns:
+            dict: status and result or error msg.
+  link_fetcher:
+    type: function
+    agents: [search_bot]
+    params:
+      description: Fetches and returns all text content from a webpage URL.
+  load_memory:
+    type: function
+    agents: [root_agent]
+  rag_answer:
+    type: function
+    agents: [root_agent]
+    params:
+      description: "Answers questions using Retrieval-Augmented Generation (RAG).\n\nThis tool retrieves relevant information\
+        \ from the active vector database \n(determined by ACTIVE_RAG_NAME) and uses it to generate a more informed answer.\n\
+        \nArgs:\n    question (str): The user's question.\n\nReturns:\n    dict: status and the answer or error message."
+  summarizer:
+    type: function
+    agents: [search_bot]
+    params:
+      description: Summarizes the fetched content according to the query.
+  web_search:
+    type: function
+    agents: [search_bot]
+    params:
+      description: Performs a web search using Google Programmable Search API.
+
+teams:
+  root_agent:
+    type: hierarchy
+    agents: [root_agent, search_bot]
+
+imports:
+  Agent: google.adk.agents.Agent
+  AGENT: multi_tool_agent.agent.AGENT
+  agent: agent
+  agent_module: multi_tool_agent.agent
+  agent_root_agent: multi_tool_agent.agent.root_agent
+  Any: typing.Any
+  APP_NAME: multi_tool_agent.agent.APP_NAME
+  asyncio: asyncio
+  BaseModel: pydantic.BaseModel
+  BeautifulSoup: bs4.BeautifulSoup
+  datetime: datetime
+  DEFAULT_ROOT_AGENT_INSTRUCTION: multi_tool_agent.agent.DEFAULT_ROOT_AGENT_INSTRUCTION
+  Depends: fastapi.Depends
+  Dict: typing.Dict
+  dotenv: dotenv
+  FAISS: langchain_community.vectorstores.FAISS
+  FastAPI: fastapi.FastAPI
+  File: fastapi.File
+  Form: fastapi.Form
+  genai: google.generativeai
+  get_vector_db_path: multi_tool_agent.agent.get_vector_db_path
+  GoogleGenerativeAIEmbeddings: langchain_google_genai.GoogleGenerativeAIEmbeddings
+  HTTPBasic: fastapi.security.HTTPBasic
+  HTTPBasicCredentials: fastapi.security.HTTPBasicCredentials
+  HTTPException: fastapi.HTTPException
+  InMemoryMemoryService: google.adk.memory.InMemoryMemoryService
+  InMemorySessionService: google.adk.sessions.InMemorySessionService
+  json: json
+  JSONResponse: fastapi.responses.JSONResponse
+  List: typing.List
+  load_memory: google.adk.tools.load_memory
+  load_rag_env: rag_builder.load_environment
+  logging: logging
+  MEMORY_SERVICE: multi_tool_agent.agent.MEMORY_SERVICE
+  memory_service: session_memory.memory_service
+  Optional: typing.Optional
+  os: os
+  pathlib: pathlib
+  process_documents_and_build_db: rag_builder.process_documents_and_build_db
+  RedirectResponse: fastapi.responses.RedirectResponse
+  Request: fastapi.Request
+  requests: requests
+  root_agent: multi_tool_agent.agent.root_agent
+  Runner: google.adk.runners.Runner
+  SESSION_SERVICE: multi_tool_agent.agent.SESSION_SERVICE
+  session_service: session_memory.session_service
+  shutil: shutil
+  StaticFiles: fastapi.staticfiles.StaticFiles
+  StreamingResponse: fastapi.responses.StreamingResponse
+  sys: sys
+  types: google.genai.types
+  UploadFile: fastapi.UploadFile
+  uvicorn: uvicorn
+  ZoneInfo: zoneinfo.ZoneInfo
+
+functions:
+  call_agent_async:
+    type: async
+    module: multi_tool_agent.adk_runner
+    args: [query, runner, user_id, session_id]
+  check_or_initiate_upload_get:
+    type: async
+    module: main
+    args: [user_name, current_user]
+  ensure_session:
+    type: sync
+    module: multi_tool_agent.agent
+    args: [user_id, session_id]
+  event_generator:
+    type: async
+    module: main
+  get_agent_runner:
+    type: sync
+    module: multi_tool_agent.agent
+    args: [user_id, session_id]
+  get_current_time:
+    type: sync
+    module: multi_tool_agent.agent
+    args: [city]
+    params:
+      returns: dict
+  get_current_user:
+    type: sync
+    module: main
+    args: [credentials]
+  get_vector_db:
+    type: sync
+    module: multi_tool_agent.agent
+    params:
+      returns: Optional[FAISS]
+  get_vector_db_path:
+    type: sync
+    module: multi_tool_agent.agent
+    args: [rag_name]
+    params:
+      returns: str
+  get_weather:
+    type: sync
+    module: multi_tool_agent.agent
+    args: [city]
+    params:
+      returns: dict
+  handle_file_upload:
+    type: async
+    module: main
+    args: [user_name, files, custom_instructions, current_user]
+  link_fetcher:
+    type: sync
+    module: multi_tool_agent.agent
+    args: [url]
+    params:
+      returns: dict
+  main:
+    type: async
+    module: multi_tool_agent.adk_runner
+  process_uploaded_documents:
+    type: async
+    module: main
+    args: [user_name, current_user]
+  rag_answer:
+    type: sync
+    module: multi_tool_agent.agent
+    args: [question]
+    params:
+      returns: dict
+  run_agent_with_rag_context:
+    type: async
+    module: main
+    args: [user_id, session_id, prompt, rag_name_override]
+  run_endpoint:
+    type: async
+    module: main
+    args: [request, user_rag_name]
+  run_sse_endpoint:
+    type: async
+    module: main
+    args: [request, user_rag_name]
+  signup_user:
+    type: async
+    module: main
+    args: [payload]
+  summarizer:
+    type: sync
+    module: multi_tool_agent.agent
+    args: [query, content]
+    params:
+      returns: dict
+  upload_redirect_base:
+    type: async
+    module: main
+    args: [user]
+  web_search:
+    type: sync
+    module: multi_tool_agent.agent
+    args: [query, engine]
+    params:
+      returns: dict
+
+variables:
+  GOOGLE_API_KEY:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: ['os.path.join(os.path.dirname(__file__), ''.env'')']
+  GOOGLE_CSE_API_KEY:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: ['os.path.join(os.path.dirname(__file__), ''.env'')']
+  PORT:
+    type: env
+    params:
+      caller: [os.environ.get]
+      path: [main]
+
+files:
+  .env:
+    type: pattern
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      pattern: [os.path.dirname(), .env]
+  _instructions.txt:
+    type: literal
+    actions: [read]
+    params:
+      caller: [run_agent_with_rag_context, event_generator]
+      path: [CUSTOM_RAG_BASE_PATH]
+  custom_instructions_path:
+    type: variable
+    actions: [read]
+    params:
+      caller: [open]
+      alias: [f]
+  CUSTOM_RAG_BASE_PATH:
+    type: variable
+    actions: [write]
+    params:
+      caller: [CUSTOM_RAG_BASE_PATH.mkdir]
+  default_instructions_path:
+    type: variable
+    actions: [read]
+    params:
+      caller: [open]
+      alias: [f]
+  default_rag_instructions.txt:
+    type: literal
+    actions: [read]
+    params:
+      caller: [run_agent_with_rag_context, event_generator]
+      path: [CUSTOM_RAG_BASE_PATH]
+  dest_path:
+    type: variable
+    actions: [write]
+    params:
+      caller: [open]
+      alias: [buffer]
+  faiss_file_path:
+    type: variable
+    actions: [read]
+    params:
+      caller: [os.path.exists]
+  rag_name:
+    type: pattern
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      pattern: [CUSTOM_RAG_BASE_DIR, rag_name]
+  user_db_path:
+    type: variable
+    actions: [read]
+    params:
+      caller: [user_db_path.iterdir]
+  user_db_specific_path:
+    type: variable
+    actions: [write]
+    params:
+      caller: [user_db_specific_path.mkdir]
+  user_temp_upload_path:
+    type: variable
+    actions: [read, write, delete]
+    params:
+      caller: [user_temp_upload_path.iterdir, user_temp_upload_path.mkdir, shutil.rmtree]
+  users.json:
+    type: literal
+    actions: [read]
+    params:
+      path: [pathlib.Path.parent]
+  USERS_FILE:
+    type: variable
+    actions: [read]
+    params:
+      caller: [open, json.load]
+      alias: [f]
+
+networks:
+  www.googleapis.com:
+    type: api
+    actions: [GET]
+    urls: [/customsearch/v1]
+    protocols: [https]
+    ports: ["443"]
+    params:
+      caller: [web_search, link_fetcher]
